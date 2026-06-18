@@ -17,6 +17,7 @@ export default defineConfig({
     target: 'es2020',
     outDir: 'dist',
     rollupOptions: {
+      external: ['isomorphic-git'],
       output: {
         manualChunks(id: string) {
           if (id.includes('monaco-editor')) return 'monaco';

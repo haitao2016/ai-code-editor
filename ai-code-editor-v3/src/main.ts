@@ -6,7 +6,7 @@ import './styles/main.css';
 import { useEditorStore, useFilesStore, useChatStore, useUIStore, useEditorSettingsStore, useAISettingsStore, useLinterStore, useModelStore, loadChatSessions, estimateTokens, trimContextWindow } from './core/stores';
 import { initMonaco, syncEditorSettings, openFileTab, saveCurrentFile, getEditorContent, getEditor } from './core/editor';
 import { initDefaultFiles, loadAllFiles, saveFile, deleteFile, clearAllFiles, getLanguageFromPath, getFileIcon } from './core/files';
-import { initTerminal, toggleTerminal, runActiveFileInTerminal } from './features/terminal';
+import { initTerminal, toggleTerminal, runActiveFileInTerminal, injectTermStyles } from './features/terminal';
 import { showGitPanel, showFileTree, gitCommit } from './features/git';
 import { sendChatMessage, toggleChat, clearChat, renderChatMessages, sendHint, applyCodeToEditor } from './features/chat';
 import { callAIStream } from './core/ai';
@@ -15,6 +15,10 @@ import { togglePreviewPanel, refreshPreview, runLinter, toggleProblemPanel } fro
 import { showPluginPanel } from './features/plugins';
 import { showCollabPanel } from './features/collab-ui';
 import { showSearchPanel } from './features/search';
+import { showOutlinePanel, toggleOutlinePanel } from './features/outline';
+import { showDiffViewer, toggleDiffViewer } from './features/diff-viewer';
+import { registerSnippets, showSnippetManager } from './features/snippets';
+import { showThemeEditor, showShortcutEditor } from './features/theme-editor';
 import { initPlugins, pluginManager } from './plugins';
 import type { FileEntry } from './types';
 import type { ElectronAPI } from './types/electron';
@@ -57,6 +61,12 @@ async function init(): Promise<void> {
   // Init plugins
   initPlugins();
 
+  // Register code snippets
+  registerSnippets();
+
+  // Inject terminal styles
+  injectTermStyles();
+
   // Load chat sessions
   loadChatSessions().then((sessions) => {
     if (sessions.length > 0) {
@@ -75,6 +85,9 @@ async function init(): Promise<void> {
   if (getElectronAPI()) {
     setupElectronIntegration();
   }
+
+  // Start file system watching
+  initFilesystemWatch();
 }
 
 // ─── Event Wiring ──────────────────────────────────────────
@@ -119,11 +132,14 @@ function wireEvents(): void {
   // Activity bar
   document.getElementById('btnExplorer')?.addEventListener('click', showFileTree);
   document.getElementById('btnGit')?.addEventListener('click', showGitPanel);
+  document.getElementById('btnSearch')?.addEventListener('click', showSearchPanel);
   document.getElementById('btnAI')?.addEventListener('click', toggleChat);
   document.getElementById('btnTerminal')?.addEventListener('click', toggleTerminal);
   document.getElementById('btnPreview')?.addEventListener('click', togglePreviewPanel);
   document.getElementById('btnPlugins')?.addEventListener('click', showPluginPanel);
   document.getElementById('btnCollab')?.addEventListener('click', showCollabPanel);
+  document.getElementById('btnOutline')?.addEventListener('click', showOutlinePanel);
+  document.getElementById('btnDiff')?.addEventListener('click', toggleDiffViewer);
   document.getElementById('btnSettings')?.addEventListener('click', showSettings);
 
   // File tree buttons
@@ -174,6 +190,12 @@ function wireEvents(): void {
         case ',': e.preventDefault(); showSettings(); break;
         case 'f': 
           if (e.shiftKey) { e.preventDefault(); showSearchPanel(); }
+          break;
+        case 'o':
+          if (e.shiftKey) { e.preventDefault(); showOutlinePanel(); }
+          break;
+        case 'd':
+          if (e.shiftKey) { e.preventDefault(); toggleDiffViewer(); }
           break;
       }
     }
@@ -373,6 +395,11 @@ function showCommandPalette(): void {
     { icon: '⎇', name: 'Git: 打开面板', shortcut: '', action: showGitPanel },
     { icon: '🔌', name: '插件管理', shortcut: '', action: showPluginPanel },
     { icon: '🌐', name: '实时协作', shortcut: '', action: showCollabPanel },
+    { icon: '📋', name: '符号大纲', shortcut: '', action: showOutlinePanel },
+    { icon: '📊', name: '差异对比', shortcut: '', action: toggleDiffViewer },
+    { icon: '📦', name: '代码片段管理', shortcut: '', action: showSnippetManager },
+    { icon: '🎨', name: '主题编辑器', shortcut: '', action: showThemeEditor },
+    { icon: '⌨', name: '快捷键设置', shortcut: '', action: showShortcutEditor },
     { icon: '⚙', name: '打开设置', shortcut: 'Ctrl+,', action: showSettings },
     { icon: '❓', name: '关于 AI Code Editor v3.0', shortcut: '', action: () => alert('AI Code Editor v3.0\nTypeScript + Vite + Zustand') },
   ];
@@ -802,6 +829,97 @@ function setupSessionSelector(): void {
     chatHeader.appendChild(newBtn);
     chatHeader.appendChild(selector);
     chatHeader.appendChild(delBtn);
+  }
+}
+
+// ─── File System Watch ─────────────────────────────────────
+let fsWatchInterval: ReturnType<typeof setInterval> | null = null;
+
+function initFilesystemWatch(): void {
+  // Electron: use native fs.watch via IPC
+  const electron = getElectronAPI();
+  if (electron?.fs?.watch) {
+    electron.fs.watch({ recursive: true }).then(() => {
+      // Watch started successfully
+    }).catch(() => {
+      // Fallback to polling
+      startWatchPolling();
+    });
+
+    // Listen for file change events
+    if (electron.on) {
+      electron.on('fs:fileChanged', (data: { path: string; event: string }) => {
+        handleFileChange(data.path, data.event);
+      });
+    }
+  } else {
+    // Web: use polling
+    startWatchPolling();
+  }
+}
+
+function startWatchPolling(): void {
+  if (fsWatchInterval) return;
+
+  // Check every 3 seconds
+  fsWatchInterval = setInterval(() => {
+    const files = useFilesStore.getState().files;
+    let hasChanges = false;
+
+    for (const [path, entry] of files.entries()) {
+      // Check if file was modified externally
+      const storedAt = entry.updatedAt;
+      const now = Date.now();
+      // In a real polling scenario, we'd compare with server/file system timestamps
+      // For now, this serves as a framework for the polling mechanism
+    }
+
+    if (hasChanges) {
+      renderFileTree();
+    }
+  }, 3000);
+}
+
+function handleFileChange(path: string, event: string): void {
+  const electron = getElectronAPI();
+  if (!electron) return;
+
+  if (event === 'rename' || event === 'change') {
+    // Reload file content
+    electron.fs.readFile(path).then((result: any) => {
+      if (result.success && result.content !== undefined) {
+        const currentEntry = useFilesStore.getState().files.get(path);
+        if (currentEntry && currentEntry.content !== result.content) {
+          showToast(`📄 ${path} 已在外部修改`);
+        }
+        useFilesStore.getState().setFile({
+          path,
+          content: result.content,
+          language: getLanguageFromPath(path),
+          updatedAt: Date.now(),
+        });
+        saveFile({
+          path,
+          content: result.content,
+          language: getLanguageFromPath(path),
+          updatedAt: Date.now(),
+        }).then(() => {
+          loadAllFiles(useFilesStore.getState().files);
+          renderFileTree();
+        });
+      }
+    }).catch(() => {});
+  } else if (event === 'rename-delete') {
+    useFilesStore.getState().deleteFile(path);
+    renderFileTree();
+    showToast(`🗑 ${path} 已被删除`);
+  }
+}
+
+function stopFilesystemWatch(): void {
+  if (fsWatchInterval) {
+    clearInterval(fsWatchInterval);
+    fsWatchInterval = null;
   }
 }
 

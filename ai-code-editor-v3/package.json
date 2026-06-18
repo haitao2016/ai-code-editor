@@ -1,7 +1,7 @@
 {
   "name": "ai-code-editor",
-  "version": "3.0.0",
-  "description": "AI Code Editor — A Cursor-like AI-powered code editor",
+  "version": "4.0.0",
+  "description": "AI Code Editor v4.0 — Cursor-like AI-powered code editor with real Agent, Composer, Diff Viewer, and Plugin System",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
@@ -35,6 +35,7 @@
     "@types/ws": "^8.18.1",
     "electron": "^42.4.1",
     "electron-builder": "^26.15.3",
+    "electron-updater": "^6.3.0",
     "vite-plugin-electron": "^1.0.4",
     "vite-plugin-electron-renderer": "^1.0.0",
     "vitest": "^4.1.9"
@@ -78,6 +79,11 @@
       "allowToChangeInstallationDirectory": true,
       "installerIcon": null,
       "uninstallerIcon": null
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "haitao2016",
+      "repo": "ai-code-editor"
     }
   }
 }
