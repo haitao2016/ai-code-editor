@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Code Editor v3.0 — Powered by WorkBuddy</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%236366f1'/><text x='16' y='22' text-anchor='middle' fill='white' font-size='18' font-family='monospace'>&lt;/&gt;</text></svg>">
+<script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
+</head>
+<body>
+
+<!-- Title Bar -->
+<div class="titlebar">
+  <div class="logo">
+    <svg viewBox="0 0 24 24" fill="none"><rect width="24" height="24" rx="5" fill="#6366f1"/><text x="12" y="17" text-anchor="middle" fill="white" font-size="13" font-family="monospace" font-weight="bold">&lt;/&gt;</text></svg>
+    AI Code Editor <span style="font-size:10px;opacity:0.6;font-weight:400">v3.0</span>
+  </div>
+  <div class="file-name" id="titleFileName">AI Code Editor</div>
+  <div class="actions">
+    <button title="最大化" id="btnFullscreen">□</button>
+    <button class="close" title="关闭">✕</button>
+  </div>
+</div>
+
+<!-- Workspace -->
+<div class="workspace" id="workspace">
+<div class="main-container">
+  <div class="activity-bar">
+    <button class="activity-btn active" title="资源管理器" id="btnExplorer">📁</button>
+    <button class="activity-btn" title="Git 版本控制" id="btnGit">⎇</button>
+    <button class="activity-btn" title="搜索" id="btnSearch">🔍</button>
+    <div class="spacer"></div>
+    <button class="activity-btn" title="AI 助手" id="btnAI">🤖</button>
+    <button class="activity-btn" title="终端" id="btnTerminal">&gt;_</button>
+    <button class="activity-btn" title="预览" id="btnPreview">▶</button>
+    <button class="activity-btn" title="插件" id="btnPlugins">🔌</button>
+    <button class="activity-btn" title="协作" id="btnCollab">🌐</button>
+    <button class="activity-btn" title="设置" id="btnSettings">⚙</button>
+  </div>
+
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <span>资源管理器</span>
+      <div class="actions" id="fileTreeActions">
+        <button title="新建文件" id="btnNewFile">+</button>
+        <button title="新建文件夹" id="btnNewFolder">📁+</button>
+        <button title="刷新" id="btnRefresh">↻</button>
+      </div>
+    </div>
+    <div class="file-tree" id="fileTree"></div>
+    <div class="git-panel" id="gitPanel"></div>
+  </div>
+
+  <div class="resize-handle" id="sidebarResize"></div>
+
+  <div class="editor-area">
+    <div class="breadcrumb-bar" id="breadcrumbBar"></div>
+    <div class="tabs-bar" id="tabsBar"></div>
+    <div class="editor-container" id="editorContainer">
+      <div class="empty-state" id="emptyState">
+        <div class="logo-large">
+          <svg viewBox="0 0 80 80" fill="none"><rect width="80" height="80" rx="16" fill="#6366f1" opacity="0.5"/><text x="40" y="55" text-anchor="middle" fill="white" font-size="44" font-family="monospace" font-weight="bold">&lt;/&gt;</text></svg>
+        </div>
+        <h2>AI Code Editor v3.0</h2>
+        <p>TypeScript · Zustand · Vite · 多模型 · 模块化架构</p>
+        <div class="shortcuts">
+          <div class="shortcut"><kbd>Ctrl+P</kbd><span>命令面板</span></div>
+          <div class="shortcut"><kbd>Ctrl+N</kbd><span>新建文件</span></div>
+          <div class="shortcut"><kbd>Ctrl+S</kbd><span>保存</span></div>
+          <div class="shortcut"><kbd>Ctrl+`</kbd><span>AI 助手</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="chat-resize-handle" id="chatResize"></div>
+
+  <div class="chat-panel" id="chatPanel">
+    <div class="chat-header">
+      <div class="title"><span class="dot" id="aiStatusDot"></span> AI 助手 <span class="status warn" id="aiStatusLabel">未配置</span></div>
+      <div class="actions">
+        <button title="清空对话" id="btnClearChat">🗑</button>
+        <button title="关闭面板" id="btnCloseChat">✕</button>
+      </div>
+    </div>
+    <div class="chat-messages" id="chatMessages"></div>
+    <div class="chat-input-area">
+      <div class="chat-input-wrapper">
+        <textarea id="chatInput" rows="1" placeholder="输入问题... (Enter 发送, Shift+Enter 换行, /agent 启动Agent, /composer 启动Composer)"></textarea>
+        <button class="send-btn" id="btnSend" title="发送">➤</button>
+      </div>
+      <div class="chat-hint">
+        <button data-hint="解释这段代码的作用">解释代码</button>
+        <button data-hint="帮我优化这段代码">优化代码</button>
+        <button data-hint="为这段代码添加注释">添加注释</button>
+        <button data-hint="帮我写一个单元测试">写测试</button>
+        <button data-hint="这段代码有什么问题？">找Bug</button>
+        <button class="agent-btn">🤖 Agent</button>
+        <button class="composer-btn">📝 Composer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Terminal Panel -->
+<div class="terminal-panel collapsed" id="terminalPanel">
+  <div class="terminal-header">
+    <div class="term-tabs">
+      <div class="term-tab active">终端</div>
+      <div class="term-tab">问题</div>
+    </div>
+    <div class="term-actions">
+      <button title="新建终端" onclick="window._termNew?.()">+</button>
+      <button title="运行活动文件" onclick="window._runFile?.()">▶</button>
+      <button title="关闭终端" onclick="window._toggleTerminal?.()">✕</button>
+    </div>
+  </div>
+  <div class="terminal-body" id="terminalContainer"></div>
+</div>
+</div>
+
+<!-- Status Bar -->
+<div class="statusbar">
+  <div class="left">
+    <span class="item" id="statusGit">⎇ main</span>
+    <span class="item" id="statusErrors" title="点击查看问题列表">✓ 0 问题</span>
+    <span class="item" title="切换终端">>_ 终端</span>
+  </div>
+  <div class="right">
+    <span class="item" id="statusLang">—</span>
+    <span class="item" id="statusEncoding">UTF-8</span>
+    <span class="item" id="statusLnCol">行 1, 列 1</span>
+    <span class="item" id="statusSave">💾 已保存</span>
+  </div>
+</div>
+
+<!-- Settings Modal -->
+<div class="modal-overlay" id="settingsModal">
+  <div class="modal">
+    <div class="modal-header"><h3>设置</h3><button id="btnCloseSettings">✕</button></div>
+    <div class="modal-body">
+      <div class="setting-group">
+        <div class="setting-label">模型选择</div>
+        <div id="modelSelector" class="model-selector"></div>
+      </div>
+      <div class="setting-group">
+        <div class="setting-label">AI 配置</div>
+        <input type="text" id="settingApiEndpoint" placeholder="API 端点 (如 https://api.openai.com/v1)">
+        <div class="setting-hint">支持 OpenAI 兼容接口</div>
+      </div>
+      <div class="setting-group">
+        <div class="setting-label">API Key</div>
+        <input type="password" id="settingApiKey" placeholder="sk-...">
+        <div class="setting-hint">密钥仅存储在本地浏览器中</div>
+      </div>
+      <div class="setting-group">
+        <div class="setting-label">模型</div>
+        <div class="row">
+          <select id="settingModel">
+            <option value="gpt-4o">GPT-4o</option>
+            <option value="gpt-4o-mini">GPT-4o Mini</option>
+            <option value="gpt-4-turbo">GPT-4 Turbo</option>
+            <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
+            <option value="deepseek-chat">DeepSeek Chat</option>
+            <option value="qwen-plus">通义千问 Plus</option>
+            <option value="custom">自定义...</option>
+          </select>
+          <input type="text" id="settingCustomModel" placeholder="自定义模型名" style="display:none">
+        </div>
+      </div>
+      <div class="setting-group">
+        <div class="setting-label">编辑器主题</div>
+        <select id="settingTheme">
+          <option value="vs-dark">暗色</option>
+          <option value="vs">亮色</option>
+          <option value="hc-black">高对比</option>
+        </select>
+      </div>
+      <div class="setting-group">
+        <div class="setting-label">字体大小: <span id="fontSizeLabel">14px</span></div>
+        <input type="range" min="11" max="24" value="14" id="settingFontSize">
+      </div>
+      <div class="setting-group">
+        <div class="setting-label">Tab 大小</div>
+        <select id="settingTabSize">
+          <option value="2">2 空格</option>
+          <option value="4" selected>4 空格</option>
+          <option value="8">8 空格</option>
+        </select>
+      </div>
+      <div class="setting-group">
+        <div class="setting-label">内联补全</div>
+        <select id="settingInlineComplete">
+          <option value="enabled" selected>启用</option>
+          <option value="disabled">禁用</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-danger" id="btnResetSettings">重置设置</button>
+      <button class="btn-danger" id="btnResetData">清除数据</button>
+      <button class="btn-secondary" id="btnCancelSettings">取消</button>
+      <button class="btn-primary" id="btnSaveSettings">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Context Menu -->
+<div class="context-menu" id="contextMenu"></div>
+
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>

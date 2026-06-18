@@ -1,0 +1,1952 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Code Editor v2.0 — Powered by WorkBuddy</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%236366f1'/><text x='16' y='22' text-anchor='middle' fill='white' font-size='18' font-family='monospace'>&lt;/&gt;</text></svg>">
+<script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
+<style>
+:root {
+  --bg-primary: #1e1e2e; --bg-secondary: #181825; --bg-tertiary: #11111b;
+  --bg-sidebar: #1a1a2e; --bg-hover: #313244; --bg-active: #45475a;
+  --border-color: #313244; --text-primary: #cdd6f4; --text-secondary: #a6adc8;
+  --text-muted: #6c7086; --accent: #6366f1; --accent-hover: #818cf8;
+  --accent-light: rgba(99,102,241,0.15); --success: #a6e3a1; --warning: #f9e2af;
+  --error: #f38ba8; --info: #89b4fa; --chat-bg: #181825;
+  --chat-user: #89b4fa; --chat-ai: #a6e3a1; --scrollbar-thumb: #45475a;
+  --scrollbar-track: transparent; --breadcrumb-height: 26px;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',sans-serif;background:var(--bg-primary);color:var(--text-primary);overflow:hidden;height:100vh;user-select:none;}
+::-webkit-scrollbar{width:6px;height:6px;}
+::-webkit-scrollbar-track{background:var(--scrollbar-track);}
+::-webkit-scrollbar-thumb{background:var(--scrollbar-thumb);border-radius:3px;}
+::-webkit-scrollbar-thumb:hover{background:var(--bg-active);}
+
+/* Title Bar */
+.titlebar{height:36px;background:var(--bg-tertiary);display:flex;align-items:center;padding:0 12px;border-bottom:1px solid var(--border-color);gap:8px;}
+.titlebar .logo{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--accent);}
+.titlebar .logo svg{width:18px;height:18px;}
+.titlebar .file-name{flex:1;text-align:center;font-size:12px;color:var(--text-secondary);}
+.titlebar .actions{display:flex;gap:4px;}
+.titlebar .actions button{background:none;border:none;color:var(--text-muted);width:28px;height:28px;border-radius:6px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;transition:all 0.15s;}
+.titlebar .actions button:hover{background:var(--bg-hover);color:var(--text-primary);}
+.titlebar .actions button.close:hover{background:var(--error);color:white;}
+
+/* Main Layout */
+.workspace{display:flex;flex-direction:column;height:calc(100vh - 36px - 24px);}
+.main-container{display:flex;flex:1;min-height:0;}
+
+/* Activity Bar */
+.activity-bar{width:44px;background:var(--bg-tertiary);display:flex;flex-direction:column;align-items:center;padding-top:8px;gap:4px;border-right:1px solid var(--border-color);}
+.activity-btn{width:36px;height:36px;border-radius:8px;background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:18px;display:flex;align-items:center;justify-content:center;transition:all 0.15s;position:relative;}
+.activity-btn:hover{color:var(--text-primary);background:var(--bg-hover);}
+.activity-btn.active{color:var(--accent);}
+.activity-btn.active::before{content:'';position:absolute;left:-2px;top:8px;bottom:8px;width:2px;background:var(--accent);border-radius:1px;}
+.activity-bar .spacer{flex:1;}
+
+/* Sidebar */
+.sidebar{width:260px;background:var(--bg-sidebar);border-right:1px solid var(--border-color);display:flex;flex-direction:column;transition:width 0.2s;}
+.sidebar.collapsed{width:0;overflow:hidden;border:none;}
+.sidebar-header{padding:10px 12px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);display:flex;align-items:center;justify-content:space-between;}
+.sidebar-header .actions{display:flex;gap:2px;}
+.sidebar-header .actions button{background:none;border:none;color:var(--text-muted);width:22px;height:22px;border-radius:4px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;}
+.sidebar-header .actions button:hover{background:var(--bg-hover);color:var(--text-primary);}
+.file-tree{flex:1;overflow-y:auto;padding:4px 8px;}
+.tree-item{display:flex;align-items:center;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:13px;gap:6px;color:var(--text-secondary);transition:all 0.1s;white-space:nowrap;}
+.tree-item:hover{background:var(--bg-hover);color:var(--text-primary);}
+.tree-item.active{background:var(--accent-light);color:var(--accent);}
+.tree-item .icon{width:16px;text-align:center;font-size:14px;flex-shrink:0;}
+.tree-item .name{flex:1;overflow:hidden;text-overflow:ellipsis;}
+.tree-item.folder{font-weight:500;}
+
+/* Editor Area */
+.editor-area{flex:1;display:flex;flex-direction:column;min-width:0;}
+
+/* Breadcrumb */
+.breadcrumb-bar{height:var(--breadcrumb-height);background:var(--bg-secondary);display:flex;align-items:center;padding:0 8px;border-bottom:1px solid var(--border-color);gap:2px;overflow-x:auto;scrollbar-width:none;}
+.breadcrumb-bar::-webkit-scrollbar{display:none;}
+.breadcrumb-item{font-size:11px;color:var(--text-muted);padding:2px 6px;border-radius:3px;cursor:pointer;white-space:nowrap;transition:all 0.1s;}
+.breadcrumb-item:hover{background:var(--bg-hover);color:var(--text-secondary);}
+.breadcrumb-item.active{color:var(--text-primary);}
+.breadcrumb-sep{color:var(--text-muted);font-size:10px;margin:0 1px;flex-shrink:0;}
+
+/* Tabs */
+.tabs-bar{height:36px;background:var(--bg-secondary);display:flex;align-items:stretch;border-bottom:1px solid var(--border-color);overflow-x:auto;scrollbar-width:none;}
+.tabs-bar::-webkit-scrollbar{display:none;}
+.tab{display:flex;align-items:center;padding:0 14px;font-size:12px;color:var(--text-muted);border-right:1px solid var(--border-color);cursor:pointer;gap:8px;min-width:100px;max-width:200px;transition:all 0.1s;position:relative;}
+.tab:hover{background:var(--bg-hover);color:var(--text-secondary);}
+.tab.active{background:var(--bg-primary);color:var(--text-primary);}
+.tab.active::after{content:'';position:absolute;bottom:-1px;left:0;right:0;height:2px;background:var(--accent);}
+.tab .tab-icon{font-size:13px;flex-shrink:0;}
+.tab .tab-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.tab .tab-close{width:16px;height:16px;border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:10px;opacity:0;transition:all 0.1s;flex-shrink:0;}
+.tab:hover .tab-close{opacity:0.6;}
+.tab .tab-close:hover{opacity:1;background:rgba(255,255,255,0.15);}
+.tab.dirty .tab-name::after{content:' \25CF';color:var(--warning);font-size:8px;}
+
+/* Monaco Container */
+.editor-container{flex:1;overflow:hidden;position:relative;}
+
+/* Empty State */
+.empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:16px;color:var(--text-muted);}
+.empty-state .logo-large{width:80px;height:80px;opacity:0.3;}
+.empty-state h2{font-size:20px;font-weight:600;color:var(--text-secondary);}
+.empty-state p{font-size:14px;}
+.empty-state .shortcuts{display:flex;gap:24px;margin-top:8px;}
+.empty-state .shortcut{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:12px;}
+.empty-state .shortcut kbd{background:var(--bg-hover);border:1px solid var(--border-color);border-radius:4px;padding:4px 10px;font-size:12px;font-family:'JetBrains Mono','Fira Code',monospace;}
+
+/* Chat Panel */
+.chat-panel{width:380px;background:var(--chat-bg);border-left:1px solid var(--border-color);display:flex;flex-direction:column;transition:width 0.2s;}
+.chat-panel.collapsed{width:0;overflow:hidden;border:none;}
+.chat-header{padding:10px 14px;border-bottom:1px solid var(--border-color);display:flex;align-items:center;justify-content:space-between;}
+.chat-header .title{font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px;}
+.chat-header .title .dot{width:8px;height:8px;border-radius:50%;background:var(--success);animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.4;}}
+.chat-header .status{font-size:10px;padding:2px 6px;border-radius:3px;}
+.chat-header .status.ok{background:rgba(166,227,161,0.15);color:var(--success);}
+.chat-header .status.warn{background:rgba(249,226,175,0.15);color:var(--warning);}
+.chat-header .actions{display:flex;gap:2px;}
+.chat-header .actions button{background:none;border:none;color:var(--text-muted);width:26px;height:26px;border-radius:6px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;}
+.chat-header .actions button:hover{background:var(--bg-hover);color:var(--text-primary);}
+.chat-messages{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:12px;}
+.chat-message{display:flex;gap:10px;font-size:13px;line-height:1.5;}
+.chat-message .avatar{width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;}
+.chat-message.user .avatar{background:rgba(137,180,250,0.15);color:var(--chat-user);}
+.chat-message.ai .avatar{background:rgba(166,227,161,0.15);color:var(--chat-ai);}
+.chat-message.error .avatar{background:rgba(243,139,168,0.15);color:var(--error);}
+.chat-message .content{flex:1;min-width:0;}
+.chat-message .content pre{background:var(--bg-tertiary);border-radius:6px;padding:10px 12px;overflow-x:auto;font-size:12px;margin:8px 0;border:1px solid var(--border-color);position:relative;}
+.chat-message .content pre .lang-tag{position:absolute;top:4px;right:8px;font-size:10px;color:var(--text-muted);text-transform:uppercase;}
+.chat-message .content pre .copy-btn{position:absolute;top:4px;right:48px;font-size:10px;background:var(--bg-hover);border:1px solid var(--border-color);color:var(--text-muted);padding:1px 6px;border-radius:3px;cursor:pointer;display:none;}
+.chat-message .content pre:hover .copy-btn{display:block;}
+.chat-message .content code{font-family:'JetBrains Mono','Fira Code','Consolas',monospace;font-size:12px;}
+.chat-message .content .inline-code{background:var(--bg-tertiary);padding:1px 6px;border-radius:3px;font-size:12px;border:1px solid var(--border-color);}
+.chat-message .loading{display:flex;gap:4px;align-items:center;padding:4px 0;}
+.chat-message .loading span{width:6px;height:6px;border-radius:50%;background:var(--text-muted);animation:loadingDot 1.4s infinite;}
+.chat-message .loading span:nth-child(2){animation-delay:0.2s;}
+.chat-message .loading span:nth-child(3){animation-delay:0.4s;}
+@keyframes loadingDot{0%,80%,100%{opacity:0.2;transform:scale(0.8);}40%{opacity:1;transform:scale(1);}}
+.chat-message .actions-row{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;}
+.chat-message .actions-row button{background:var(--bg-hover);border:1px solid var(--border-color);color:var(--text-secondary);font-size:11px;padding:3px 10px;border-radius:4px;cursor:pointer;transition:all 0.15s;}
+.chat-message .actions-row button:hover{background:var(--accent-light);color:var(--accent);border-color:var(--accent);}
+.chat-message .actions-row button.apply{background:var(--accent);color:white;border-color:var(--accent);}
+.chat-message .actions-row button.apply:hover{background:var(--accent-hover);}
+.chat-input-area{padding:10px 14px;border-top:1px solid var(--border-color);}
+.chat-input-wrapper{display:flex;gap:8px;background:var(--bg-tertiary);border-radius:8px;padding:8px 12px;border:1px solid var(--border-color);transition:border-color 0.15s;}
+.chat-input-wrapper:focus-within{border-color:var(--accent);}
+.chat-input-wrapper textarea{flex:1;background:none;border:none;color:var(--text-primary);font-size:13px;font-family:inherit;resize:none;outline:none;max-height:120px;line-height:1.5;}
+.chat-input-wrapper textarea::placeholder{color:var(--text-muted);}
+.chat-input-wrapper .send-btn{background:var(--accent);border:none;color:white;width:32px;height:32px;border-radius:6px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;transition:all 0.15s;flex-shrink:0;align-self:flex-end;}
+.chat-input-wrapper .send-btn:hover{background:var(--accent-hover);transform:scale(1.05);}
+.chat-input-wrapper .send-btn:disabled{opacity:0.4;cursor:not-allowed;transform:none;}
+.chat-hint{margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;}
+.chat-hint button{background:var(--bg-hover);border:1px solid var(--border-color);color:var(--text-muted);font-size:11px;padding:3px 8px;border-radius:4px;cursor:pointer;transition:all 0.15s;}
+.chat-hint button:hover{color:var(--text-primary);background:var(--bg-active);}
+
+/* Diff Panel */
+.diff-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:990;display:none;align-items:center;justify-content:center;}
+.diff-overlay.show{display:flex;}
+.diff-panel{width:90%;max-width:1100px;height:80vh;background:var(--bg-secondary);border-radius:12px;border:1px solid var(--border-color);box-shadow:0 16px 48px rgba(0,0,0,0.5);display:flex;flex-direction:column;overflow:hidden;}
+.diff-panel .diff-header{padding:12px 16px;border-bottom:1px solid var(--border-color);display:flex;align-items:center;justify-content:space-between;}
+.diff-panel .diff-header h3{font-size:14px;font-weight:600;}
+.diff-panel .diff-header .diff-actions{display:flex;gap:8px;}
+.diff-panel .diff-header button{background:var(--bg-hover);border:1px solid var(--border-color);color:var(--text-secondary);padding:6px 14px;border-radius:6px;cursor:pointer;font-size:12px;transition:all 0.15s;}
+.diff-panel .diff-header button:hover{background:var(--bg-active);color:var(--text-primary);}
+.diff-panel .diff-header button.accept{background:var(--accent);color:white;border-color:var(--accent);}
+.diff-panel .diff-header button.accept:hover{background:var(--accent-hover);}
+.diff-panel .diff-container{flex:1;overflow:hidden;}
+
+/* Status Bar */
+.statusbar{height:24px;background:var(--accent);display:flex;align-items:center;padding:0 12px;font-size:12px;gap:16px;color:white;}
+.statusbar .left,.statusbar .right{display:flex;align-items:center;gap:12px;}
+.statusbar .right{margin-left:auto;}
+.statusbar .item{display:flex;align-items:center;gap:4px;cursor:pointer;opacity:0.9;}
+.statusbar .item:hover{opacity:1;}
+
+/* Resize Handles */
+.resize-handle{width:4px;cursor:col-resize;position:relative;flex-shrink:0;}
+.resize-handle:hover,.resize-handle.active{background:var(--accent);}
+.chat-resize-handle{width:4px;cursor:col-resize;position:relative;flex-shrink:0;}
+.chat-resize-handle:hover,.chat-resize-handle.active{background:var(--accent);}
+
+/* Toast */
+.toast{position:fixed;bottom:40px;right:20px;background:var(--bg-tertiary);border:1px solid var(--border-color);padding:10px 16px;border-radius:8px;font-size:13px;box-shadow:0 8px 32px rgba(0,0,0,0.4);animation:slideUp 0.3s ease;z-index:1000;}
+@keyframes slideUp{from{transform:translateY(20px);opacity:0;}to{transform:translateY(0);opacity:1;}}
+
+/* Command Palette */
+.command-palette{position:fixed;top:80px;left:50%;transform:translateX(-50%);width:560px;max-height:400px;background:var(--bg-tertiary);border:1px solid var(--border-color);border-radius:10px;box-shadow:0 16px 48px rgba(0,0,0,0.5);z-index:999;display:none;flex-direction:column;overflow:hidden;}
+.command-palette.show{display:flex;}
+.command-palette input{background:none;border:none;padding:12px 16px;color:var(--text-primary);font-size:14px;outline:none;border-bottom:1px solid var(--border-color);font-family:inherit;}
+.command-palette .results{flex:1;overflow-y:auto;padding:4px;}
+.command-palette .result-item{padding:8px 12px;border-radius:6px;cursor:pointer;display:flex;align-items:center;gap:10px;font-size:13px;}
+.command-palette .result-item:hover,.command-palette .result-item.selected{background:var(--accent-light);}
+.command-palette .result-item .cmd-icon{font-size:16px;width:20px;text-align:center;}
+.command-palette .result-item .cmd-name{flex:1;}
+.command-palette .result-item .cmd-shortcut{color:var(--text-muted);font-size:11px;font-family:'JetBrains Mono',monospace;}
+
+/* Settings Modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:998;display:none;align-items:center;justify-content:center;}
+.modal-overlay.show{display:flex;}
+.modal{background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:12px;width:540px;max-height:85vh;box-shadow:0 16px 48px rgba(0,0,0,0.5);overflow:hidden;display:flex;flex-direction:column;}
+.modal-header{padding:16px 20px;border-bottom:1px solid var(--border-color);display:flex;align-items:center;justify-content:space-between;}
+.modal-header h3{font-size:15px;font-weight:600;}
+.modal-header button{background:none;border:none;color:var(--text-muted);width:28px;height:28px;border-radius:6px;cursor:pointer;font-size:16px;}
+.modal-header button:hover{background:var(--bg-hover);}
+.modal-body{padding:20px;overflow-y:auto;flex:1;}
+.modal-body .setting-group{margin-bottom:20px;}
+.modal-body .setting-label{font-size:12px;font-weight:600;text-transform:uppercase;color:var(--text-muted);letter-spacing:0.5px;margin-bottom:6px;}
+.modal-body .setting-hint{font-size:11px;color:var(--text-muted);margin-top:4px;}
+.modal-body select,.modal-body input{width:100%;padding:8px 12px;border-radius:6px;background:var(--bg-tertiary);border:1px solid var(--border-color);color:var(--text-primary);font-size:13px;outline:none;font-family:inherit;}
+.modal-body select:focus,.modal-body input:focus{border-color:var(--accent);}
+.modal-body .theme-options{display:flex;gap:8px;}
+.modal-body .theme-option{flex:1;padding:12px;border-radius:8px;border:2px solid var(--border-color);cursor:pointer;text-align:center;font-size:12px;transition:all 0.15s;}
+.modal-body .theme-option:hover{border-color:var(--bg-active);}
+.modal-body .theme-option.selected{border-color:var(--accent);}
+.modal-body .row{display:flex;gap:8px;}
+.modal-body .row>*{flex:1;}
+.modal-footer{padding:14px 20px;border-top:1px solid var(--border-color);display:flex;justify-content:flex-end;gap:8px;}
+.modal-footer button{padding:7px 18px;border-radius:6px;font-size:13px;cursor:pointer;transition:all 0.15s;}
+.modal-footer .btn-secondary{background:var(--bg-hover);border:1px solid var(--border-color);color:var(--text-secondary);}
+.modal-footer .btn-secondary:hover{background:var(--bg-active);color:var(--text-primary);}
+.modal-footer .btn-primary{background:var(--accent);border:none;color:white;}
+.modal-footer .btn-primary:hover{background:var(--accent-hover);}
+.modal-footer .btn-danger{background:transparent;border:1px solid var(--error);color:var(--error);}
+.modal-footer .btn-danger:hover{background:rgba(243,139,168,0.1);}
+
+/* Template Dialog */
+.template-dialog{position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:997;display:none;align-items:center;justify-content:center;}
+.template-dialog.show{display:flex;}
+.template-dialog .dialog-content{background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:12px;width:460px;max-height:80vh;box-shadow:0 16px 48px rgba(0,0,0,0.5);display:flex;flex-direction:column;overflow:hidden;}
+.template-dialog .dialog-header{padding:16px 20px;border-bottom:1px solid var(--border-color);display:flex;align-items:center;justify-content:space-between;}
+.template-dialog .dialog-header h3{font-size:15px;font-weight:600;}
+.template-dialog .dialog-header button{background:none;border:none;color:var(--text-muted);width:28px;height:28px;border-radius:6px;cursor:pointer;font-size:16px;}
+.template-dialog .dialog-header button:hover{background:var(--bg-hover);}
+.template-dialog .dialog-body{padding:16px 20px;overflow-y:auto;flex:1;}
+.template-dialog .template-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px;}
+.template-dialog .template-card{padding:12px;border:1px solid var(--border-color);border-radius:8px;cursor:pointer;transition:all 0.15s;}
+.template-dialog .template-card:hover{border-color:var(--accent);background:var(--accent-light);}
+.template-dialog .template-card.selected{border-color:var(--accent);background:var(--accent-light);}
+.template-dialog .template-card .tpl-icon{font-size:22px;margin-bottom:4px;}
+.template-dialog .template-card .tpl-name{font-size:13px;font-weight:500;margin-bottom:2px;}
+.template-dialog .template-card .tpl-desc{font-size:11px;color:var(--text-muted);}
+.template-dialog .dialog-footer{padding:14px 20px;border-top:1px solid var(--border-color);display:flex;justify-content:flex-end;gap:8px;}
+.template-dialog .dialog-footer button{padding:7px 18px;border-radius:6px;font-size:13px;cursor:pointer;transition:all 0.15s;}
+.template-dialog .dialog-footer .btn-cancel{background:var(--bg-hover);border:1px solid var(--border-color);color:var(--text-secondary);}
+.template-dialog .dialog-footer .btn-cancel:hover{background:var(--bg-active);}
+.template-dialog .dialog-footer .btn-create{background:var(--accent);border:none;color:white;}
+.template-dialog .dialog-footer .btn-create:hover{background:var(--accent-hover);}
+.template-dialog .dialog-footer .btn-create:disabled{opacity:0.4;cursor:not-allowed;}
+
+/* File context menu */
+.context-menu{position:fixed;background:var(--bg-tertiary);border:1px solid var(--border-color);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.4);z-index:995;min-width:160px;padding:4px;display:none;}
+.context-menu.show{display:block;}
+.context-menu .menu-item{padding:6px 12px;border-radius:4px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:8px;color:var(--text-secondary);}
+.context-menu .menu-item:hover{background:var(--accent-light);color:var(--accent);}
+.context-menu .menu-item.danger:hover{background:rgba(243,139,168,0.15);color:var(--error);}
+.context-menu .menu-separator{height:1px;background:var(--border-color);margin:4px 8px;}
+
+.view-lines{font-family:'JetBrains Mono','Fira Code','Consolas',monospace!important;}
+@media(max-width:900px){.sidebar{width:200px;}.chat-panel{width:300px;}}
+
+/* Terminal Panel */
+.terminal-panel{height:240px;background:var(--bg-tertiary);border-top:1px solid var(--border-color);overflow:hidden;transition:height 0.2s;}
+.terminal-panel.collapsed{height:0;border:none;}
+.terminal-panel .terminal-header{padding:6px 12px;background:var(--bg-primary);border-bottom:1px solid var(--border-color);display:flex;align-items:center;justify-content:space-between;font-size:11px;color:var(--text-muted);}
+.terminal-panel .terminal-header .term-tabs{display:flex;gap:2px;}
+.terminal-panel .terminal-header .term-tab{padding:3px 10px;border-radius:4px 4px 0 0;font-size:11px;cursor:pointer;color:var(--text-muted);border:1px solid transparent;border-bottom:none;}
+.terminal-panel .terminal-header .term-tab.active{color:var(--text-primary);background:var(--bg-secondary);border-color:var(--border-color);}
+.terminal-panel .terminal-header .term-tab:hover{color:var(--text-primary);}
+.terminal-panel .terminal-header .term-actions{display:flex;gap:4px;}
+.terminal-panel .terminal-header .term-actions button{background:none;border:none;color:var(--text-muted);width:22px;height:22px;border-radius:4px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;}
+.terminal-panel .terminal-header .term-actions button:hover{background:var(--bg-hover);color:var(--text-primary);}
+.terminal-panel .terminal-body{height:calc(100% - 30px);}
+
+/* Git Panel in Sidebar */
+.git-panel{flex:1;overflow-y:auto;display:none;}
+.git-panel .git-status-bar{padding:8px 12px;border-bottom:1px solid var(--border-color);display:flex;align-items:center;justify-content:space-between;font-size:11px;}
+.git-panel .git-status-bar .branch{color:var(--success);font-weight:500;}
+.git-panel .git-status-bar button{background:var(--accent);color:white;border:none;padding:3px 10px;border-radius:4px;cursor:pointer;font-size:11px;}
+.git-panel .git-status-bar button:hover{background:var(--accent-hover);}
+.git-panel .git-section-title{padding:6px 12px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);}
+.git-panel .git-file-item{padding:4px 12px 4px 20px;font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--text-secondary);transition:all 0.1s;}
+.git-panel .git-file-item:hover{background:var(--bg-hover);}
+.git-panel .git-file-item .git-status-icon{font-size:10px;width:14px;text-align:center;flex-shrink:0;}
+.git-panel .git-file-item .git-status-icon.modified{color:var(--warning);}
+.git-panel .git-file-item .git-status-icon.added{color:var(--success);}
+.git-panel .git-file-item .git-status-icon.deleted{color:var(--error);}
+.git-panel .git-commit-section{padding:8px 12px;border-top:1px solid var(--border-color);}
+.git-panel .git-commit-section textarea{width:100%;padding:6px 8px;border-radius:6px;background:var(--bg-primary);border:1px solid var(--border-color);color:var(--text-primary);font-size:12px;resize:none;outline:none;min-height:40px;font-family:inherit;}
+.git-panel .git-commit-section textarea:focus{border-color:var(--accent);}
+.git-panel .git-commit-section .commit-btn{width:100%;margin-top:6px;background:var(--accent);color:white;border:none;padding:5px;border-radius:6px;cursor:pointer;font-size:12px;}
+.git-panel .git-commit-section .commit-btn:hover{background:var(--accent-hover);}
+.git-panel .git-empty{padding:20px 12px;text-align:center;color:var(--text-muted);font-size:12px;}
+.git-panel .git-empty .git-empty-icon{font-size:28px;margin-bottom:8px;opacity:0.3;}
+.git-panel .git-empty button{margin-top:8px;background:var(--accent);color:white;border:none;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:11px;}
+.git-panel .git-empty button:hover{background:var(--accent-hover);}
+.git-panel .git-log-item{padding:6px 12px;border-bottom:1px solid var(--border-color);font-size:11px;}
+.git-panel .git-log-item .git-hash{color:var(--accent);font-family:monospace;font-size:10px;}
+.git-panel .git-log-item .git-msg{color:var(--text-secondary);margin-top:2px;}
+.git-panel .git-log-item .git-meta{color:var(--text-muted);font-size:10px;margin-top:2px;display:flex;gap:8px;}
+</style>
+</head>
+<body>
+
+<!-- Title Bar -->
+<div class="titlebar">
+  <div class="logo">
+    <svg viewBox="0 0 24 24" fill="none"><rect width="24" height="24" rx="5" fill="#6366f1"/><text x="12" y="17" text-anchor="middle" fill="white" font-size="13" font-family="monospace" font-weight="bold">&lt;/&gt;</text></svg>
+    AI Code Editor <span style="font-size:10px;opacity:0.6;font-weight:400">v2.0</span>
+  </div>
+  <div class="file-name" id="titleFileName">AI Code Editor</div>
+  <div class="actions">
+    <button title="最大化" onclick="toggleFullscreen()">&#x25A1;</button>
+    <button class="close" title="关闭" onclick="window.close()">&#x2715;</button>
+  </div>
+</div>
+
+<!-- Main Container -->
+<div class="workspace" id="workspace">
+<div class="main-container">
+  <div class="activity-bar">
+    <button class="activity-btn active" title="资源管理器" id="btnExplorer" onclick="showFileTree()">&#x1F4C1;</button>
+    <button class="activity-btn" title="Git 版本控制" id="btnGit" onclick="showGitPanel()">&#x2387;</button>
+    <button class="activity-btn" title="搜索" id="btnSearch">&#x1F50D;</button>
+    <div class="spacer"></div>
+    <button class="activity-btn" title="AI 助手" id="btnAI">&#x1F916;</button>
+    <button class="activity-btn" title="终端" id="btnTerminal" onclick="toggleTerminal()">&gt;_</button>
+    <button class="activity-btn" title="预览" id="btnPreview" onclick="togglePreviewPanel()">&#x25B6;</button>
+    <button class="activity-btn" title="设置" id="btnSettings">&#x2699;</button>
+  </div>
+
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <span>资源管理器</span>
+      <div class="actions" id="fileTreeActions">
+        <button title="新建文件 (带模板)" id="btnNewFile">+</button>
+        <button title="新建文件夹" id="btnNewFolder">&#x1F4C1;+</button>
+        <button title="刷新" id="btnRefresh">&#x21BB;</button>
+      </div>
+    </div>
+    <div class="file-tree" id="fileTree"></div>
+    <div class="git-panel" id="gitPanel"></div>
+  </div>
+
+  <div class="resize-handle" id="sidebarResize"></div>
+
+  <div class="editor-area">
+    <div class="breadcrumb-bar" id="breadcrumbBar"></div>
+    <div class="tabs-bar" id="tabsBar"></div>
+    <div class="editor-container" id="editorContainer">
+      <div class="empty-state" id="emptyState">
+        <div class="logo-large">
+          <svg viewBox="0 0 80 80" fill="none"><rect width="80" height="80" rx="16" fill="#6366f1" opacity="0.5"/><text x="40" y="55" text-anchor="middle" fill="white" font-size="44" font-family="monospace" font-weight="bold">&lt;/&gt;</text></svg>
+        </div>
+        <h2>AI Code Editor v2.0</h2>
+        <p>支持真实 AI API · 终端 · Git · 持久化存储 · 内联补全 · Diff 对比</p>
+        <div class="shortcuts">
+          <div class="shortcut"><kbd>Ctrl+P</kbd><span>命令面板</span></div>
+          <div class="shortcut"><kbd>Ctrl+N</kbd><span>新建文件</span></div>
+          <div class="shortcut"><kbd>Ctrl+S</kbd><span>保存</span></div>
+          <div class="shortcut"><kbd>Ctrl+`</kbd><span>AI 助手</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="chat-resize-handle" id="chatResize"></div>
+
+  <div class="chat-panel" id="chatPanel">
+    <div class="chat-header">
+      <div class="title"><span class="dot" id="aiStatusDot"></span> AI 助手 <span class="status warn" id="aiStatusLabel">未配置</span></div>
+      <div class="actions">
+        <button title="清空对话" id="btnClearChat">&#x1F5D1;</button>
+        <button title="关闭面板" id="btnCloseChat">&#x2715;</button>
+      </div>
+    </div>
+    <div class="chat-messages" id="chatMessages">
+      <div class="chat-message ai">
+        <div class="avatar">&#x1F916;</div>
+        <div class="content">
+          你好！我是 AI 编程助手 v1.5。<br><br>
+          <b>新功能：</b><br>
+          &#x2022; 支持 OpenAI 兼容 API（需在设置中配置）<br>
+          &#x2022; 代码块可一键应用到编辑器<br>
+          &#x2022; 支持 Diff 对比预览修改<br>
+          &#x2022; 文件自动持久化存储<br><br>
+          去 <span class="inline-code">设置 &#x2699;</span> 配置 API Key 开始使用真实 AI。
+        </div>
+      </div>
+    </div>
+    <div class="chat-input-area">
+      <div class="chat-input-wrapper">
+        <textarea id="chatInput" rows="1" placeholder="输入问题... (Shift+Enter 换行)"></textarea>
+        <button class="send-btn" id="btnSend" title="发送 (Enter)">&#x27A4;</button>
+      </div>
+      <div class="chat-hint">
+        <button data-hint="解释这段代码的作用">解释代码</button>
+        <button data-hint="帮我优化这段代码">优化代码</button>
+        <button data-hint="为这段代码添加注释">添加注释</button>
+        <button data-hint="帮我写一个单元测试">写测试</button>
+        <button data-hint="这段代码有什么问题？">找Bug</button>
+        <button style="background:var(--accent-light);border-color:var(--accent);color:var(--accent);" onclick="startAgentMode()">🤖 Agent 模式</button>
+        <button style="background:rgba(166,227,161,0.1);border-color:var(--success);color:var(--success);" onclick="startComposerMode()">📝 Composer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Terminal Panel -->
+<div class="terminal-panel collapsed" id="terminalPanel">
+  <div class="terminal-header">
+    <div class="term-tabs">
+      <div class="term-tab active">终端</div>
+      <div class="term-tab" onclick="toggleTerminalConsole()">问题</div>
+    </div>
+    <div class="term-actions">
+      <button title="新建终端" onclick="termNew()">+</button>
+      <button title="运行活动文件" onclick="runActiveFileInTerminal()">&#x25B6;</button>
+      <button title="关闭终端" onclick="toggleTerminal()">&#x2715;</button>
+    </div>
+  </div>
+  <div class="terminal-body" id="terminalContainer"></div>
+</div>
+</div>
+
+<!-- Status Bar -->
+<div class="statusbar">
+  <div class="left">
+    <span class="item" id="statusGit">&#x2387; main</span>
+    <span class="item" id="statusErrors" onclick="toggleProblemPanel()" style="cursor:pointer;" title="点击查看问题列表">&#x2713; 0 问题</span>
+    <span class="item" title="切换终端" onclick="toggleTerminal()" style="cursor:pointer;">&gt;_ 终端</span>
+  </div>
+  <div class="right">
+    <span class="item" id="statusLang">—</span>
+    <span class="item" id="statusEncoding">UTF-8</span>
+    <span class="item" id="statusLnCol">行 1, 列 1</span>
+    <span class="item" id="statusSave">&#x1F4BE; 已保存</span>
+  </div>
+</div>
+
+<!-- Command Palette -->
+<div class="command-palette" id="commandPalette">
+  <input type="text" id="cmdInput" placeholder="输入命令...">
+  <div class="results" id="cmdResults"></div>
+</div>
+
+<!-- Settings Modal -->
+<div class="modal-overlay" id="settingsModal">
+  <div class="modal">
+    <div class="modal-header"><h3>设置</h3><button id="btnCloseSettings">&#x2715;</button></div>
+    <div class="modal-body">
+      <div class="setting-group">
+        <div class="setting-label">AI 配置</div>
+        <input type="text" id="settingApiEndpoint" placeholder="API 端点 (如 https://api.openai.com/v1)">
+        <div class="setting-hint">支持 OpenAI 兼容接口</div>
+      </div>
+      <div class="setting-group">
+        <div class="setting-label">API Key</div>
+        <input type="password" id="settingApiKey" placeholder="sk-...">
+        <div class="setting-hint">密钥仅存储在本地浏览器中</div>
+      </div>
+      <div class="setting-group">
+        <div class="setting-label">模型</div>
+        <div class="row">
+          <select id="settingModel">
+            <option value="gpt-4o">GPT-4o</option>
+            <option value="gpt-4o-mini">GPT-4o Mini</option>
+            <option value="gpt-4-turbo">GPT-4 Turbo</option>
+            <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
+            <option value="deepseek-chat">DeepSeek Chat</option>
+            <option value="qwen-plus">通义千问 Plus</option>
+            <option value="custom">自定义...</option>
+          </select>
+          <input type="text" id="settingCustomModel" placeholder="自定义模型名" style="display:none">
+        </div>
+      </div>
+      <div class="setting-group">
+        <div class="setting-label">编辑器主题</div>
+        <div class="theme-options" id="themeOptions">
+          <div class="theme-option selected" data-theme="vs-dark">&#x1F319;<br>暗色</div>
+          <div class="theme-option" data-theme="vs">&#x2600;<br>亮色</div>
+          <div class="theme-option" data-theme="hc-black">&#x25A0;<br>高对比</div>
+        </div>
+      </div>
+      <div class="setting-group">
+        <div class="setting-label">字体大小: <span id="fontSizeLabel">14px</span></div>
+        <input type="range" min="11" max="24" value="14" id="settingFontSize">
+      </div>
+      <div class="setting-group">
+        <div class="setting-label">Tab 大小</div>
+        <select id="settingTabSize">
+          <option value="2">2 空格</option>
+          <option value="4" selected>4 空格</option>
+          <option value="8">8 空格</option>
+        </select>
+      </div>
+      <div class="setting-group">
+        <div class="setting-label">内联补全</div>
+        <select id="settingInlineComplete">
+          <option value="enabled" selected>启用</option>
+          <option value="disabled">禁用</option>
+        </select>
+        <div class="setting-hint">类似 Cursor Tab 的灰色补全提示（需要配置 AI API）</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-danger" id="btnResetSettings">重置所有设置</button>
+      <button class="btn-danger" id="btnResetData">清除所有数据</button>
+      <button class="btn-secondary" id="btnCancelSettings">取消</button>
+      <button class="btn-primary" id="btnSaveSettings">保存设置</button>
+    </div>
+  </div>
+</div>
+
+<!-- Diff Panel -->
+<div class="diff-overlay" id="diffOverlay">
+  <div class="diff-panel">
+    <div class="diff-header">
+      <h3>代码变更预览</h3>
+      <div class="diff-actions">
+        <button id="btnDiffReject">拒绝</button>
+        <button class="accept" id="btnDiffAccept">接受变更</button>
+      </div>
+    </div>
+    <div class="diff-container" id="diffContainer"></div>
+  </div>
+</div>
+
+<!-- Template Dialog -->
+<div class="template-dialog" id="templateDialog">
+  <div class="dialog-content">
+    <div class="dialog-header"><h3>新建文件 — 选择模板</h3><button id="btnCloseTemplate">&#x2715;</button></div>
+    <div class="dialog-body">
+      <div class="setting-group"><div class="setting-label">文件名</div><input type="text" id="templateFileName" placeholder="my-component.jsx"></div>
+      <div class="template-grid" id="templateGrid"></div>
+    </div>
+    <div class="dialog-footer">
+      <button class="btn-cancel" id="btnCancelTemplate">取消</button>
+      <button class="btn-create" id="btnCreateTemplate" disabled>创建文件</button>
+    </div>
+  </div>
+</div>
+
+<!-- Context Menu -->
+<div class="context-menu" id="contextMenu"></div>
+
+<script>
+// ============================================================
+// V1.5 — Storage, Settings, AI Service, Inline Completion
+// ============================================================
+
+// ─── IndexedDB Storage ─────────────────────────────────────
+const DB_NAME = 'ai-code-editor';
+const DB_VERSION = 1;
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains('files')) {
+        db.createObjectStore('files', { keyPath: 'path' });
+      }
+      if (!db.objectStoreNames.contains('chatHistory')) {
+        db.createObjectStore('chatHistory', { keyPath: 'id', autoIncrement: true });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function dbPut(storeName, data) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, 'readwrite');
+    tx.objectStore(storeName).put(data);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
+  });
+}
+
+async function dbGetAll(storeName) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, 'readonly');
+    const req = tx.objectStore(storeName).getAll();
+    req.onsuccess = () => { db.close(); resolve(req.result); };
+    req.onerror = () => { db.close(); reject(req.error); };
+  });
+}
+
+async function dbDelete(storeName, key) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, 'readwrite');
+    tx.objectStore(storeName).delete(key);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
+  });
+}
+
+async function dbClear(storeName) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, 'readwrite');
+    tx.objectStore(storeName).clear();
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
+  });
+}
+
+// ─── Settings Manager ──────────────────────────────────────
+const DEFAULT_SETTINGS = {
+  apiEndpoint: '',
+  apiKey: '',
+  model: 'gpt-4o-mini',
+  customModel: '',
+  theme: 'vs-dark',
+  fontSize: 14,
+  tabSize: 4,
+  inlineComplete: 'enabled'
+};
+
+let settings = { ...DEFAULT_SETTINGS };
+
+function loadSettings() {
+  try {
+    const saved = localStorage.getItem('ai-code-editor-settings');
+    if (saved) settings = { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
+  } catch(e) { settings = { ...DEFAULT_SETTINGS }; }
+}
+
+function saveSettings() {
+  localStorage.setItem('ai-code-editor-settings', JSON.stringify(settings));
+}
+
+function applySettingsToUI() {
+  document.getElementById('settingApiEndpoint').value = settings.apiEndpoint;
+  document.getElementById('settingApiKey').value = settings.apiKey;
+  document.getElementById('settingModel').value = settings.model === 'custom' ? 'custom' : (['gpt-4o','gpt-4o-mini','gpt-4-turbo','claude-3-5-sonnet','deepseek-chat','qwen-plus'].includes(settings.model) ? settings.model : 'custom');
+  if (settings.model === 'custom' || !['gpt-4o','gpt-4o-mini','gpt-4-turbo','claude-3-5-sonnet','deepseek-chat','qwen-plus'].includes(settings.model)) {
+    document.getElementById('settingCustomModel').style.display = 'block';
+    document.getElementById('settingCustomModel').value = settings.model === 'custom' ? settings.customModel : settings.model;
+  }
+  document.getElementById('settingFontSize').value = settings.fontSize;
+  document.getElementById('fontSizeLabel').textContent = settings.fontSize + 'px';
+  document.getElementById('settingTabSize').value = settings.tabSize;
+  document.getElementById('settingInlineComplete').value = settings.inlineComplete;
+  document.querySelectorAll('#themeOptions .theme-option').forEach(el => {
+    el.classList.toggle('selected', el.dataset.theme === settings.theme);
+  });
+  updateAIStatus();
+}
+
+function updateAIStatus() {
+  const dot = document.getElementById('aiStatusDot');
+  const label = document.getElementById('aiStatusLabel');
+  if (settings.apiEndpoint && settings.apiKey) {
+    dot.style.background = 'var(--success)';
+    label.className = 'status ok';
+    label.textContent = settings.model === 'custom' ? (settings.customModel || '自定义') : settings.model;
+  } else {
+    dot.style.background = 'var(--warning)';
+    label.className = 'status warn';
+    label.textContent = '未配置';
+  }
+}
+
+// ─── AI Service ────────────────────────────────────────────
+async function callAI(messages, options = {}) {
+  if (!settings.apiEndpoint || !settings.apiKey) {
+    throw new Error('请先在设置中配置 API 端点和 Key');
+  }
+  const endpoint = settings.apiEndpoint.replace(/\/$/, '');
+  const model = settings.model === 'custom' ? settings.customModel : settings.model;
+
+  const body = {
+    model: model,
+    messages: messages,
+    temperature: options.temperature ?? 0.3,
+    max_tokens: options.maxTokens ?? 4096,
+    stream: false
+  };
+
+  const resp = await fetch(endpoint + '/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + settings.apiKey
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    throw new Error(`API 错误 (${resp.status}): ${errText.substring(0, 200)}`);
+  }
+
+  const data = await resp.json();
+  return data.choices?.[0]?.message?.content || '';
+}
+
+async function callAIStream(messages, onChunk, options = {}) {
+  if (!settings.apiEndpoint || !settings.apiKey) {
+    throw new Error('请先在设置中配置 API 端点和 Key');
+  }
+  const endpoint = settings.apiEndpoint.replace(/\/$/, '');
+  const model = settings.model === 'custom' ? settings.customModel : settings.model;
+
+  const body = {
+    model: model,
+    messages: messages,
+    temperature: options.temperature ?? 0.3,
+    max_tokens: options.maxTokens ?? 4096,
+    stream: true
+  };
+
+  const resp = await fetch(endpoint + '/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + settings.apiKey
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    throw new Error(`API 错误 (${resp.status}): ${errText.substring(0, 200)}`);
+  }
+
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        const data = line.slice(6).trim();
+        if (data === '[DONE]') return;
+        try {
+          const json = JSON.parse(data);
+          const content = json.choices?.[0]?.delta?.content;
+          if (content) onChunk(content);
+        } catch(e) {}
+      }
+    }
+  }
+}
+
+// ─── File Templates ────────────────────────────────────────
+const FILE_TEMPLATES = [
+  { name: '空文件', ext: 'txt', icon: '&#x1F4C4;', lang: 'plaintext', desc: '空白文本文件', content: '' },
+  { name: 'HTML 页面', ext: 'html', icon: '&#x1F310;', lang: 'html', desc: '标准 HTML5 模板',
+    content: '<!DOCTYPE html>\n<html lang="zh-CN">\n<head>\n  <meta charset="UTF-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n  <title>Document</title>\n</head>\n<body>\n  \n</body>\n</html>\n' },
+  { name: 'CSS 样式', ext: 'css', icon: '&#x1F3A8;', lang: 'css', desc: '样式表',
+    content: '/* Styles */\n\n* {\n  margin: 0;\n  padding: 0;\n  box-sizing: border-box;\n}\n\nbody {\n  font-family: -apple-system, BlinkMacSystemFont, sans-serif;\n}\n' },
+  { name: 'JavaScript', ext: 'js', icon: '&#x1F7E8;', lang: 'javascript', desc: 'JavaScript 模块',
+    content: '// JavaScript Module\n\n' },
+  { name: 'React 组件', ext: 'jsx', icon: '&#x269B;', lang: 'javascriptreact', desc: 'React 函数组件',
+    content: 'import React from \'react\';\n\nfunction MyComponent() {\n  return (\n    <div>\n      \n    </div>\n  );\n}\n\nexport default MyComponent;\n' },
+  { name: 'TypeScript', ext: 'ts', icon: '&#x1F499;', lang: 'typescript', desc: 'TypeScript 模块',
+    content: '// TypeScript Module\n\ninterface Config {\n  name: string;\n}\n\nexport function init(config: Config): void {\n  \n}\n' },
+  { name: 'Python', ext: 'py', icon: '&#x1F40D;', lang: 'python', desc: 'Python 脚本',
+    content: '#!/usr/bin/env python3\n"""Module description."""\n\n\ndef main():\n    pass\n\n\nif __name__ == "__main__":\n    main()\n' },
+  { name: 'JSON', ext: 'json', icon: '{ }', lang: 'json', desc: 'JSON 配置',
+    content: '{\n  \n}\n' },
+  { name: 'Markdown', ext: 'md', icon: '&#x1F4DD;', lang: 'markdown', desc: 'Markdown 文档',
+    content: '# Title\n\nDescription here.\n' },
+  { name: 'README', ext: 'md', icon: '&#x1F4D6;', lang: 'markdown', desc: '项目 README',
+    content: '# Project Name\n\n## Description\n\n## Installation\n\n## Usage\n\n## License\n' },
+];
+
+let selectedTemplate = null;
+
+function showTemplateDialog() {
+  selectedTemplate = null;
+  document.getElementById('templateFileName').value = '';
+  document.getElementById('btnCreateTemplate').disabled = true;
+  document.getElementById('templateDialog').classList.add('show');
+  renderTemplateGrid();
+}
+
+function renderTemplateGrid() {
+  const grid = document.getElementById('templateGrid');
+  grid.innerHTML = FILE_TEMPLATES.map((t, i) => `
+    <div class="template-card" data-idx="${i}" onclick="selectTemplate(${i}, this)">
+      <div class="tpl-icon">${t.icon}</div>
+      <div class="tpl-name">${t.name}</div>
+      <div class="tpl-desc">.${t.ext} — ${t.desc}</div>
+    </div>
+  `).join('');
+}
+
+function selectTemplate(idx, el) {
+  selectedTemplate = FILE_TEMPLATES[idx];
+  document.querySelectorAll('.template-card').forEach(c => c.classList.remove('selected'));
+  el.classList.add('selected');
+  const nameInput = document.getElementById('templateFileName');
+  if (!nameInput.value) nameInput.value = 'untitled.' + selectedTemplate.ext;
+  document.getElementById('btnCreateTemplate').disabled = false;
+}
+
+function createFromTemplate() {
+  const name = document.getElementById('templateFileName').value.trim();
+  if (!name || !selectedTemplate) return;
+  const path = getParentPath() + '/' + name;
+  createFile(path, selectedTemplate.content, selectedTemplate.lang);
+  document.getElementById('templateDialog').classList.remove('show');
+}
+
+function getParentPath() {
+  if (activeFile) {
+    const lastSlash = activeFile.lastIndexOf('/');
+    return lastSlash > 0 ? activeFile.substring(0, lastSlash) : '';
+  }
+  return '';
+}
+
+// ─── File System ───────────────────────────────────────────
+const DEFAULT_FS = {
+  '/': {
+    name: 'AI Code Editor',
+    type: 'folder',
+    children: {
+      'src': {
+        name: 'src', type: 'folder',
+        children: {
+          'index.html': { name: 'index.html', type: 'file',
+            content: '<!DOCTYPE html>\n<html lang="zh-CN">\n<head>\n  <meta charset="UTF-8">\n  <title>My App</title>\n  <link rel="stylesheet" href="style.css">\n</head>\n<body>\n  <div id="app">\n    <h1>Hello World</h1>\n  </div>\n  <script src="app.js"><\/script>\n</body>\n</html>\n', language: 'html' },
+          'style.css': { name: 'style.css', type: 'file',
+            content: '*{margin:0;padding:0;box-sizing:border-box;}\nbody{font-family:sans-serif;line-height:1.6;color:#333;}\n#app{max-width:800px;margin:2rem auto;padding:0 1rem;}\n', language: 'css' },
+          'app.js': { name: 'app.js', type: 'file',
+            content: '// Application entry\nconsole.log("App initialized");\n\ndocument.addEventListener("DOMContentLoaded", () => {\n  const app = document.getElementById("app");\n  console.log("Ready!");\n});\n', language: 'javascript' }
+        }
+      },
+      'README.md': { name: 'README.md', type: 'file',
+        content: '# AI Code Editor Project\n\nBuilt with AI Code Editor v1.5.\n\n## Features\n- Monaco Editor\n- AI Assistant (OpenAI compatible)\n- Persistent storage\n- Inline completions\n', language: 'markdown' },
+      'package.json': { name: 'package.json', type: 'file',
+        content: '{\n  "name": "my-app",\n  "version": "1.0.0",\n  "scripts": {\n    "start": "live-server src"\n  }\n}\n', language: 'json' }
+    }
+  }
+};
+
+let fileSystem = {};
+
+function serializeFS(node) {
+  if (node.type === 'file') return { name: node.name, type: 'file', content: node.content, language: node.language };
+  const children = {};
+  if (node.children) {
+    for (const [key, child] of Object.entries(node.children)) {
+      children[key] = serializeFS(child);
+    }
+  }
+  return { name: node.name, type: 'folder', children };
+}
+
+function deserializeFS(node) {
+  if (node.type === 'file') return { name: node.name, type: 'file', content: node.content || '', language: node.language };
+  const children = {};
+  if (node.children) {
+    for (const [key, child] of Object.entries(node.children)) {
+      children[key] = deserializeFS(child);
+    }
+  }
+  return { name: node.name, type: 'folder', children };
+}
+
+async function loadFileSystem() {
+  try {
+    const files = await dbGetAll('files');
+    const rootFile = files.find(f => f.path === '/');
+    if (rootFile) {
+      fileSystem = { '/': deserializeFS(rootFile.node) };
+    } else {
+      fileSystem = JSON.parse(JSON.stringify(DEFAULT_FS));
+      await persistFileSystem();
+    }
+  } catch(e) {
+    console.error('Failed to load filesystem:', e);
+    fileSystem = JSON.parse(JSON.stringify(DEFAULT_FS));
+  }
+}
+
+async function persistFileSystem() {
+  try {
+    await dbPut('files', { path: '/', node: serializeFS(fileSystem['/']) });
+    document.getElementById('statusSave').innerHTML = '&#x1F4BE; 已保存';
+  } catch(e) {
+    console.error('Failed to persist:', e);
+    document.getElementById('statusSave').innerHTML = '&#x26A0; 保存失败';
+  }
+}
+
+async function persistCurrentFile() {
+  if (!activeFile) return;
+  const file = openFiles.get(activeFile);
+  if (!file || !editor) return;
+  const node = findNode(activeFile);
+  if (node && node.type === 'file') {
+    node.content = editor.getModel().getValue();
+    file.dirty = false;
+    await persistFileSystem();
+    renderTabs();
+  }
+}
+
+// ─── File tree helpers ─────────────────────────────────────
+function getFileIcon(file) {
+  if (file.type === 'folder') return '&#x1F4C1;';
+  const icons = { html:'&#x1F310;', css:'&#x1F3A8;', js:'&#x1F7E8;', javascript:'&#x1F7E8;',
+    json:'{ }', md:'&#x1F4DD;', markdown:'&#x1F4DD;', py:'&#x1F40D;', ts:'&#x1F499;',
+    jsx:'&#x269B;', tsx:'&#x269B;', svg:'&#x1F5BC;', png:'&#x1F5BC;', jpg:'&#x1F5BC;' };
+  const ext = file.name.split('.').pop()?.toLowerCase();
+  return icons[ext] || '&#x1F4C4;';
+}
+
+function getLanguage(file) {
+  if (file.language) return file.language;
+  const ext = file.name.split('.').pop()?.toLowerCase();
+  const map = { html:'html', css:'css', js:'javascript', javascript:'javascript',
+    json:'json', md:'markdown', markdown:'markdown', py:'python',
+    ts:'typescript', tsx:'typescriptreact', jsx:'javascriptreact',
+    yaml:'yaml', yml:'yaml', xml:'xml', sql:'sql', sh:'shell',
+    bash:'shell', c:'c', cpp:'cpp', h:'c', java:'java', go:'go',
+    rs:'rust', rb:'ruby', php:'php', swift:'swift', kt:'kotlin' };
+  return map[ext] || 'plaintext';
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function buildFileTree(node, path = '/', depth = 0) {
+  if (node.type === 'file') {
+    const icon = getFileIcon(node);
+    const isActive = activeFile === path;
+    return `<div class="tree-item${isActive?' active':''}" data-path="${escapeHtml(path)}" data-type="file" style="padding-left:${12+depth*16}px" oncontextmenu="showFileContextMenu(event,'${escapeHtml(path)}','file')">
+      <span class="icon">${icon}</span><span class="name">${escapeHtml(node.name)}</span>
+    </div>`;
+  }
+  let html = `<div class="tree-item folder" data-path="${escapeHtml(path)}" data-type="folder" style="padding-left:${12+depth*16}px" oncontextmenu="showFileContextMenu(event,'${escapeHtml(path)}','folder')">
+    <span class="icon">&#x1F4C1;</span><span class="name">${escapeHtml(node.name)}</span>
+  </div>`;
+  if (node.children) {
+    for (const [key, child] of Object.entries(node.children)) {
+      html += `<div class="tree-item-wrapper" data-parent="${escapeHtml(path)}">`;
+      html += buildFileTree(child, path==='/'?`/${key}`:`${path}/${key}`, depth+1);
+      html += '</div>';
+    }
+  }
+  return html;
+}
+
+function renderFileTree() {
+  document.getElementById('fileTree').innerHTML = buildFileTree(fileSystem['/']);
+}
+
+function findNode(path) {
+  if (path === '/') return fileSystem['/'];
+  const parts = path.split('/').filter(Boolean);
+  let current = fileSystem['/'];
+  for (const part of parts) {
+    current = current.children?.[part];
+    if (!current) return null;
+  }
+  return current;
+}
+
+// ─── Editor State ──────────────────────────────────────────
+let editor = null;
+let diffEditor = null;
+let openFiles = new Map();
+let activeFile = null;
+let sidebarCollapsed = false;
+let chatCollapsed = false;
+let commandPaletteVisible = false;
+let autoSaveTimer = null;
+let isChatLoading = false;
+
+function openFile(path) {
+  const node = findNode(path);
+  if (!node || node.type !== 'file') return;
+  if (openFiles.has(path)) { setActiveFile(path); return; }
+  const uri = monaco.Uri.parse('file:///' + path);
+  let model = monaco.editor.getModel(uri);
+  if (!model) model = monaco.editor.createModel(node.content || '', getLanguage(node), uri);
+  openFiles.set(path, { model, dirty: false, language: getLanguage(node) });
+  setActiveFile(path);
+  renderTabs();
+}
+
+function setActiveFile(path) {
+  activeFile = path;
+  const file = openFiles.get(path);
+  if (file && editor) {
+    editor.setModel(file.model);
+    document.getElementById('emptyState').style.display = 'none';
+    document.getElementById('titleFileName').textContent = path.substring(1) + ' — AI Code Editor';
+    document.getElementById('statusLang').textContent = file.language || 'plaintext';
+  }
+  renderTabs();
+  renderFileTree();
+  renderBreadcrumb();
+}
+
+function closeFile(path) {
+  openFiles.delete(path);
+  const tabs = Array.from(openFiles.keys());
+  if (activeFile === path) {
+    if (tabs.length > 0) { setActiveFile(tabs[0]); }
+    else {
+      activeFile = null;
+      if (editor) editor.setModel(null);
+      document.getElementById('emptyState').style.display = 'flex';
+      document.getElementById('titleFileName').textContent = 'AI Code Editor';
+      document.getElementById('statusLang').textContent = '—';
+    }
+  }
+  renderTabs();
+  renderFileTree();
+  renderBreadcrumb();
+}
+
+function renderTabs() {
+  const container = document.getElementById('tabsBar');
+  container.innerHTML = '';
+  for (const [path, file] of openFiles) {
+    const node = findNode(path);
+    const name = node ? node.name : path.split('/').pop();
+    const icon = node ? getFileIcon(node) : '&#x1F4C4;';
+    const isActive = path === activeFile;
+    const tab = document.createElement('div');
+    tab.className = `tab${isActive?' active':''}${file.dirty?' dirty':''}`;
+    tab.innerHTML = `<span class="tab-icon">${icon}</span><span class="tab-name">${escapeHtml(name)}</span><span class="tab-close">&times;</span>`;
+    tab.onclick = () => setActiveFile(path);
+    tab.querySelector('.tab-close').onclick = (e) => { e.stopPropagation(); closeFile(path); };
+    tab.oncontextmenu = (e) => { e.preventDefault(); showTabContextMenu(e, path); };
+    container.appendChild(tab);
+  }
+}
+
+function showTabContextMenu(e, path) {
+  const menu = document.getElementById('contextMenu');
+  menu.innerHTML = `
+    <div class="menu-item" onclick="closeFile('${escapeHtml(path)}');hideContextMenu()">关闭</div>
+    <div class="menu-item" onclick="closeOthers('${escapeHtml(path)}');hideContextMenu()">关闭其他</div>
+    <div class="menu-item" onclick="closeAll();hideContextMenu()">关闭全部</div>
+  `;
+  menu.style.left = e.clientX + 'px';
+  menu.style.top = e.clientY + 'px';
+  menu.classList.add('show');
+}
+
+function closeOthers(path) {
+  for (const p of [...openFiles.keys()]) {
+    if (p !== path) closeFile(p);
+  }
+}
+
+function closeAll() {
+  for (const p of [...openFiles.keys()]) closeFile(p);
+}
+
+function hideContextMenu() {
+  document.getElementById('contextMenu').classList.remove('show');
+}
+
+// ─── Breadcrumb ────────────────────────────────────────────
+function renderBreadcrumb() {
+  const bar = document.getElementById('breadcrumbBar');
+  if (!activeFile) { bar.innerHTML = ''; return; }
+  const parts = activeFile.split('/').filter(Boolean);
+  let html = '';
+  let cumPath = '';
+  for (let i = 0; i < parts.length; i++) {
+    if (i > 0) html += '<span class="breadcrumb-sep">&#x203A;</span>';
+    cumPath += '/' + parts[i];
+    const isLast = i === parts.length - 1;
+    const node = findNode(cumPath);
+    const icon = node ? getFileIcon(node) : '&#x1F4C4;';
+    html += `<span class="breadcrumb-item${isLast?' active':''}" data-path="${escapeHtml(cumPath)}" onclick="breadcrumbClick('${escapeHtml(cumPath)}')">${icon} ${escapeHtml(parts[i])}</span>`;
+  }
+  bar.innerHTML = html;
+}
+
+function breadcrumbClick(path) {
+  const node = findNode(path);
+  if (node?.type === 'file') openFile(path);
+}
+
+// ─── File Operations ───────────────────────────────────────
+function createFile(path, content = '', language = null) {
+  const parts = path.split('/').filter(Boolean);
+  const fileName = parts.pop();
+  let current = fileSystem['/'];
+  for (const part of parts) {
+    if (!current.children) current.children = {};
+    if (!current.children[part]) {
+      current.children[part] = { name: part, type: 'folder', children: {} };
+    }
+    current = current.children[part];
+  }
+  if (!current.children) current.children = {};
+  const lang = language || getLanguage({ name: fileName });
+  current.children[fileName] = { name: fileName, type: 'file', content, language: lang };
+  renderFileTree();
+  persistFileSystem();
+  openFile(path);
+  showToast('已创建: ' + fileName);
+}
+
+function createFolder(path) {
+  const parts = path.split('/').filter(Boolean);
+  const folderName = parts.pop();
+  let current = fileSystem['/'];
+  for (const part of parts) {
+    if (!current.children) current.children = {};
+    if (!current.children[part]) {
+      current.children[part] = { name: part, type: 'folder', children: {} };
+    }
+    current = current.children[part];
+  }
+  if (!current.children) current.children = {};
+  current.children[folderName] = { name: folderName, type: 'folder', children: {} };
+  renderFileTree();
+  persistFileSystem();
+  showToast('已创建文件夹: ' + folderName);
+}
+
+async function deleteFileOrFolder(path) {
+  if (path === '/') return;
+  const lastSlash = path.lastIndexOf('/');
+  const parentPath = lastSlash === 0 ? '/' : path.substring(0, lastSlash);
+  const name = path.substring(lastSlash + 1);
+  const parent = findNode(parentPath);
+  if (!parent?.children) return;
+
+  if (openFiles.has(path)) closeFile(path);
+  // Recursively close child files
+  for (const p of [...openFiles.keys()]) {
+    if (p.startsWith(path + '/')) closeFile(p);
+  }
+  delete parent.children[name];
+  renderFileTree();
+  await persistFileSystem();
+  showToast('已删除: ' + name);
+}
+
+async function renameFileOrFolder(oldPath, newName) {
+  if (oldPath === '/') return;
+  const lastSlash = oldPath.lastIndexOf('/');
+  const parentPath = lastSlash === 0 ? '/' : oldPath.substring(0, lastSlash);
+  const newPath = (parentPath === '/' ? '/' : parentPath + '/') + newName;
+  const parent = findNode(parentPath);
+  const node = findNode(oldPath);
+  if (!parent?.children || !node) return;
+
+  parent.children[newName] = node;
+  node.name = newName;
+  delete parent.children[oldPath.split('/').pop()];
+
+  // Update open files
+  if (openFiles.has(oldPath)) {
+    const file = openFiles.get(oldPath);
+    openFiles.set(newPath, file);
+    openFiles.delete(oldPath);
+    if (activeFile === oldPath) activeFile = newPath;
+  }
+  // Update child paths
+  for (const p of [...openFiles.keys()]) {
+    if (p.startsWith(oldPath + '/')) {
+      const file = openFiles.get(p);
+      const newP = newPath + p.substring(oldPath.length);
+      openFiles.set(newP, file);
+      openFiles.delete(p);
+      if (activeFile === p) activeFile = newP;
+    }
+  }
+
+  renderFileTree();
+  renderTabs();
+  renderBreadcrumb();
+  await persistFileSystem();
+  showToast('已重命名: ' + newName);
+}
+
+// ─── Context Menu ──────────────────────────────────────────
+function showFileContextMenu(e, path, type) {
+  e.preventDefault();
+  const menu = document.getElementById('contextMenu');
+  let html = '';
+  if (type === 'file') {
+    html += `<div class="menu-item" onclick="openFile('${escapeHtml(path)}');hideContextMenu()">打开</div>`;
+  }
+  html += `<div class="menu-item" onclick="hideContextMenu();renamePrompt('${escapeHtml(path)}')">重命名</div>`;
+  html += `<div class="menu-separator"></div>`;
+  html += `<div class="menu-item danger" onclick="if(confirm('确认删除 ${path.split('/').pop()}？')){deleteFileOrFolder('${escapeHtml(path)}')};hideContextMenu()">删除</div>`;
+  menu.innerHTML = html;
+  menu.style.left = e.clientX + 'px';
+  menu.style.top = e.clientY + 'px';
+  menu.classList.add('show');
+}
+
+function renamePrompt(path) {
+  const oldName = path.split('/').pop();
+  const newName = prompt('重命名:', oldName);
+  if (newName && newName !== oldName) renameFileOrFolder(path, newName);
+}
+
+// ─── Chat Logic ────────────────────────────────────────────
+function addChatMessage(role, text, actions = null) {
+  const container = document.getElementById('chatMessages');
+  const div = document.createElement('div');
+  div.className = `chat-message ${role}`;
+  const avatars = { user: '&#x1F468;&#x200D;&#x1F4BB;', ai: '&#x1F916;', error: '&#x26A0;' };
+
+  let contentHtml = text
+    .replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
+      const codeId = 'code_' + Math.random().toString(36).substr(2, 8);
+      window['_code_' + codeId] = code.trim();
+      return `<pre><span class="lang-tag">${lang||''}</span><span class="copy-btn" onclick="copyCode('${codeId}')">复制</span><code>${escapeHtml(code.trim())}</code></pre>`;
+    })
+    .replace(/`([^`]+)`/g, '<span class="inline-code">$1</span>')
+    .replace(/\n/g, '<br>');
+
+  let actionsHtml = '';
+  if (actions?.length) {
+    actionsHtml = '<div class="actions-row">' +
+      actions.map(a => {
+        let cls = a.apply ? 'apply' : '';
+        return `<button class="${cls}" onclick="${a.action}">${a.label}</button>`;
+      }).join('') +
+      '</div>';
+  }
+
+  div.innerHTML = `<div class="avatar">${avatars[role]||'?'}</div><div class="content">${contentHtml}${actionsHtml}</div>`;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+  return div;
+}
+
+function addLoadingMessage() {
+  const container = document.getElementById('chatMessages');
+  const div = document.createElement('div');
+  div.className = 'chat-message ai';
+  div.id = 'loadingMsg';
+  div.innerHTML = '<div class="avatar">&#x1F916;</div><div class="content"><div class="loading"><span></span><span></span><span></span></div></div>';
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+function removeLoadingMessage() {
+  const el = document.getElementById('loadingMsg');
+  if (el) el.remove();
+}
+
+function copyCode(codeId) {
+  const code = window['_code_' + codeId];
+  if (code) {
+    navigator.clipboard.writeText(code).then(() => showToast('已复制到剪贴板'));
+  }
+}
+
+function getChatContext() {
+  let context = '';
+  if (activeFile && editor) {
+    const model = editor.getModel();
+    const selection = editor.getSelection();
+    const selectedText = model.getValueInRange(selection);
+    if (selectedText && selectedText.length > 0) {
+      const lang = openFiles.get(activeFile)?.language || 'plaintext';
+      context = `\n当前文件: ${activeFile} (${lang})\n选中的代码:\n\`\`\`${lang}\n${selectedText}\n\`\`\``;
+    } else {
+      const lang = openFiles.get(activeFile)?.language || 'plaintext';
+      const fullContent = model.getValue();
+      if (fullContent.length > 0 && fullContent.length < 8000) {
+        context = `\n当前文件: ${activeFile} (${lang})\n内容:\n\`\`\`${lang}\n${fullContent}\n\`\`\``;
+      } else {
+        context = `\n当前文件: ${activeFile} (${lang})`;
+      }
+    }
+  }
+  return context;
+}
+
+function extractCodeBlocks(text) {
+  const blocks = [];
+  const regex = /```(\w*)\n([\s\S]*?)```/g;
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    blocks.push({ language: match[1], code: match[2].trim() });
+  }
+  return blocks;
+}
+
+async function sendChatMessage() {
+  const input = document.getElementById('chatInput');
+  const text = input.value.trim();
+  if (!text || isChatLoading) return;
+
+  // Agent 模式检测
+  if (text.startsWith('/agent ') || text.startsWith('/ask ')) {
+    const intent = text.replace(/^\/(agent|ask)\s+/, '').trim();
+    input.value = '';
+    input.style.height = 'auto';
+    addChatMessage('user', text);
+    startAgentFromChat(intent);
+    return;
+  }
+
+  // Composer 模式检测
+  if (text.startsWith('/composer ') || text.startsWith('/edit ')) {
+    const intent = text.replace(/^\/(composer|edit)\s+/, '').trim();
+    input.value = '';
+    input.style.height = 'auto';
+    addChatMessage('user', text);
+    startComposerFromChat(intent);
+    return;
+  }
+
+  // 快捷方式
+  if (text === '!' || text === '/agent' || text === '/ask') {
+    input.value = '';
+    input.style.height = 'auto';
+    addChatMessage('user', 'Agent 模式');
+    startAgentMode();
+    return;
+  }
+
+  input.value = '';
+  input.style.height = 'auto';
+  isChatLoading = true;
+  document.getElementById('btnSend').disabled = true;
+
+  addChatMessage('user', text);
+  addLoadingMessage();
+
+  const context = enhancedGetChatContext();
+  const messages = [
+    { role: 'system', content: '你是一个专业的编程助手。用中文回答。在回答中提供代码时使用markdown代码块。如果用户要求修改代码，给出完整的修改后代码，并说明修改了什么。' },
+    { role: 'user', content: text + context }
+  ];
+
+  try {
+    let response = '';
+    if (settings.apiEndpoint && settings.apiKey) {
+      response = await callAI(messages);
+    } else {
+      response = mockAIResponse(text);
+    }
+    removeLoadingMessage();
+
+    const codeBlocks = extractCodeBlocks(response);
+    let actions = [];
+    if (codeBlocks.length > 0) {
+      actions.push({ label: '查看 Diff', action: codeBlocks.map((b, i) => `showDiff('${escapeHtml(b.language||'')}', 'codeBlock_${i}')`)[0], apply: false });
+      codeBlocks.forEach((b, i) => {
+        window['codeBlock_' + i] = b.code;
+      });
+      actions.push({ label: '应用到当前文件', action: 'applyFirstCodeBlock()', apply: true });
+    }
+
+    if (text.includes('解释') || text.includes('这段代码')) {
+      actions.push({ label: '继续提问', action: "sendHint('这个实现有什么潜在问题？')", apply: false });
+    }
+
+    addChatMessage('ai', response, actions);
+  } catch(e) {
+    removeLoadingMessage();
+    addChatMessage('error', '错误: ' + e.message);
+  }
+
+  isChatLoading = false;
+  document.getElementById('btnSend').disabled = false;
+}
+
+function mockAIResponse(query) {
+  const lower = query.toLowerCase();
+  if (lower.includes('解释') || lower.includes('这段代码'))
+    return '我来分析这段代码：\n\n这段代码展示了清晰的结构设计。主要功能包括初始化配置和事件处理。\n\n**建议改进：**\n1. 添加错误边界处理\n2. 使用 JSDoc 注释提升可读性\n3. 考虑提取魔法字符串为常量\n\n需要我展开某个方面吗？';
+  if (lower.includes('优化') || lower.includes('重构'))
+    return '优化建议：\n\n```javascript\n// 1. 解构赋值\nconst { name, age } = user;\n\n// 2. 可选链\nconst city = user?.address?.city ?? "未知";\n\n// 3. async/await\nasync function fetchData() {\n  try {\n    const res = await fetch("/api/data");\n    if (!res.ok) throw new Error("Network error");\n    return await res.json();\n  } catch (e) {\n    console.error(e);\n    return null;\n  }\n}\n\n// 4. 提取常量\nconst API_URL = "https://api.example.com";\nconst TIMEOUT = 5000;\n```\n\n这些优化提升了代码的可维护性和健壮性。';
+  if (lower.includes('注释'))
+    return '添加 JSDoc 注释：\n\n```javascript\n/**\n * 用户管理模块\n * @module userManager\n */\n\n/**\n * 获取用户列表\n * @param {Object} options - 查询选项\n * @param {number} [options.limit=10] - 返回数量限制\n * @returns {Promise<User[]>} 用户对象数组\n */\nasync function getUsers({ limit = 10 } = {}) {\n  // ...\n}\n```';
+  if (lower.includes('测试'))
+    return '单元测试：\n\n```javascript\nimport { describe, it, expect } from "vitest";\n\ndescribe("UserManager", () => {\n  it("should fetch users", async () => {\n    const users = await getUsers({ limit: 5 });\n    expect(users).toBeInstanceOf(Array);\n    expect(users.length).toBeLessThanOrEqual(5);\n  });\n\n  it("should handle errors", async () => {\n    await expect(getUsers({ limit: -1 }))\n      .rejects.toThrow("Invalid limit");\n  });\n});\n```\n\n运行: `npx vitest run`';
+  return '好的，我来帮你分析。请告诉我更具体的需求，比如：\n\n- 想要实现什么功能？\n- 遇到了什么具体问题？\n- 需要什么类型的代码？\n\n我会根据你的需求提供针对性的帮助。';
+}
+
+function sendHint(text) {
+  document.getElementById('chatInput').value = text;
+  sendChatMessage();
+}
+
+function applyFirstCodeBlock() {
+  const blocks = extractCodeBlocks(document.querySelector('.chat-message.ai:last-child .content')?.textContent || '');
+  if (blocks.length === 0) { showToast('未找到代码块'); return; }
+  if (!activeFile || !editor) { showToast('请先打开一个文件'); return; }
+  editor.getModel().setValue(blocks[0].code);
+  const file = openFiles.get(activeFile);
+  if (file) file.dirty = true;
+  renderTabs();
+  autoSave();
+  showToast('代码已应用');
+}
+
+// ─── Diff View ─────────────────────────────────────────────
+function showDiff(language, codeBlockKey) {
+  const code = window[codeBlockKey];
+  if (!code) { showToast('未找到代码'); return; }
+  if (!activeFile || !editor) { showToast('请先打开一个文件'); return; }
+
+  const original = editor.getModel().getValue();
+  document.getElementById('diffOverlay').classList.add('show');
+
+  const container = document.getElementById('diffContainer');
+  container.innerHTML = '';
+
+  if (diffEditor) diffEditor.dispose();
+
+  diffEditor = monaco.editor.createDiffEditor(container, {
+    theme: settings.theme,
+    fontSize: settings.fontSize,
+    readOnly: true,
+    automaticLayout: true,
+    renderSideBySide: true
+  });
+
+  const originalModel = monaco.editor.createModel(original, getLanguage({ name: activeFile }));
+  const modifiedModel = monaco.editor.createModel(code, language || 'plaintext');
+  diffEditor.setModel({ original: originalModel, modified: modifiedModel });
+}
+
+function acceptDiff() {
+  if (!diffEditor || !activeFile || !editor) return;
+  const modifiedModel = diffEditor.getModifiedEditor().getModel();
+  const newContent = modifiedModel.getValue();
+  editor.getModel().setValue(newContent);
+  closeDiff();
+  const file = openFiles.get(activeFile);
+  if (file) file.dirty = true;
+  renderTabs();
+  autoSave();
+  showToast('变更已接受');
+}
+
+function closeDiff() {
+  document.getElementById('diffOverlay').classList.remove('show');
+  if (diffEditor) { diffEditor.dispose(); diffEditor = null; }
+}
+
+// ─── Auto Save ─────────────────────────────────────────────
+function autoSave() {
+  if (autoSaveTimer) clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(async () => {
+    await persistCurrentFile();
+  }, 500);
+}
+
+// ─── Toast ─────────────────────────────────────────────────
+function showToast(message) {
+  const existing = document.querySelector('.toast');
+  if (existing) existing.remove();
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  toast.textContent = message;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 2500);
+}
+
+// ─── Command Palette ───────────────────────────────────────
+function toggleCommandPalette() {
+  const palette = document.getElementById('commandPalette');
+  const input = document.getElementById('cmdInput');
+  if (palette.classList.contains('show')) {
+    palette.classList.remove('show');
+    commandPaletteVisible = false;
+  } else {
+    palette.classList.add('show');
+    commandPaletteVisible = true;
+    input.value = '';
+    input.focus();
+    filterCommands('');
+  }
+}
+
+const commands = [
+  { icon: '&#x1F4C4;', name: '新建文件 (模板)', shortcut: 'Ctrl+N', action: () => showTemplateDialog() },
+  { icon: '&#x1F4C1;', name: '新建文件夹', shortcut: '', action: () => { const n = prompt('文件夹名:'); if(n) createFolder('/'+n); } },
+  { icon: '&#x1F4BE;', name: '保存当前文件', shortcut: 'Ctrl+S', action: () => persistCurrentFile() },
+  { icon: '&#x1F50D;', name: '在文件中搜索', shortcut: 'Ctrl+F', action: () => editor?.getAction('actions.find')?.run() },
+  { icon: '&#x1F916;', name: 'AI: 解释代码', shortcut: '', action: () => sendHint('解释这段代码的作用') },
+  { icon: '&#x1F916;', name: 'AI: 优化代码', shortcut: '', action: () => sendHint('帮我优化这段代码') },
+  { icon: '&#x1F916;', name: 'AI: 添加注释', shortcut: '', action: () => sendHint('为这段代码添加注释') },
+  { icon: '&#x1F916;', name: 'AI: 找Bug', shortcut: '', action: () => sendHint('这段代码有什么问题？') },
+  { icon: '&#x2699;', name: '打开设置', shortcut: 'Ctrl+,', action: () => toggleSettings() },
+  { icon: '&gt;_', name: '终端: 切换面板', shortcut: 'Ctrl+J', action: () => toggleTerminal() },
+  { icon: '&#x25B6;', name: '终端: 运行当前文件', shortcut: '', action: () => runActiveFileInTerminal() },
+  { icon: '&#x2387;', name: 'Git: 打开面板', shortcut: '', action: () => showGitPanel() },
+  { icon: '&#x25B6;', name: '预览: 切换面板', shortcut: '', action: () => togglePreviewPanel() },
+  { icon: '&#x1F50D;', name: 'Linter: 显示问题', shortcut: '', action: () => toggleProblemPanel() },
+  { icon: '&#x2753;', name: '关于 AI Code Editor', shortcut: '', action: () => showToast('AI Code Editor v2.0') },
+];
+
+function filterCommands(query) {
+  const results = document.getElementById('cmdResults');
+  const filtered = query ? commands.filter(c => c.name.toLowerCase().includes(query.toLowerCase())) : commands;
+  results.innerHTML = filtered.map((c, i) => `
+    <div class="result-item${i===0?' selected':''}" data-cmd="${escapeHtml(c.name)}" onclick="executeCommand('${escapeHtml(c.name)}')">
+      <span class="cmd-icon">${c.icon}</span><span class="cmd-name">${escapeHtml(c.name)}</span>
+      ${c.shortcut?`<span class="cmd-shortcut">${escapeHtml(c.shortcut)}</span>`:''}
+    </div>`).join('');
+}
+
+function executeCommand(name) {
+  const cmd = commands.find(c => c.name === name);
+  if (cmd) { document.getElementById('commandPalette').classList.remove('show'); commandPaletteVisible = false; cmd.action(); }
+}
+
+// ─── Settings ──────────────────────────────────────────────
+function toggleSettings() {
+  const modal = document.getElementById('settingsModal');
+  if (modal.classList.contains('show')) {
+    modal.classList.remove('show');
+  } else {
+    applySettingsToUI();
+    modal.classList.add('show');
+  }
+}
+
+function saveSettingsFromUI() {
+  settings.apiEndpoint = document.getElementById('settingApiEndpoint').value.trim();
+  settings.apiKey = document.getElementById('settingApiKey').value.trim();
+  settings.model = document.getElementById('settingModel').value;
+  if (settings.model === 'custom') {
+    settings.customModel = document.getElementById('settingCustomModel').value.trim();
+  }
+  settings.fontSize = parseInt(document.getElementById('settingFontSize').value);
+  settings.tabSize = parseInt(document.getElementById('settingTabSize').value);
+  settings.inlineComplete = document.getElementById('settingInlineComplete').value;
+  settings.theme = document.querySelector('#themeOptions .theme-option.selected')?.dataset?.theme || 'vs-dark';
+
+  saveSettings();
+  applySettings();
+  document.getElementById('settingsModal').classList.remove('show');
+  showToast('设置已保存');
+}
+
+function applySettings() {
+  monaco.editor.setTheme(settings.theme);
+  if (editor) {
+    editor.updateOptions({ fontSize: settings.fontSize, tabSize: settings.tabSize });
+  }
+  updateAIStatus();
+  updateInlineCompletionProvider();
+}
+
+async function resetSettings() {
+  if (!confirm('确认重置所有设置到默认值？')) return;
+  settings = { ...DEFAULT_SETTINGS };
+  saveSettings();
+  applySettingsToUI();
+  applySettings();
+  showToast('设置已重置');
+}
+
+async function resetAllData() {
+  if (!confirm('确认清除所有文件数据和设置？此操作不可恢复！')) return;
+  await dbClear('files');
+  await dbClear('chatHistory');
+  settings = { ...DEFAULT_SETTINGS };
+  saveSettings();
+  fileSystem = JSON.parse(JSON.stringify(DEFAULT_FS));
+  openFiles.clear();
+  activeFile = null;
+  if (editor) editor.setModel(null);
+  document.getElementById('emptyState').style.display = 'flex';
+  document.getElementById('chatMessages').innerHTML = `<div class="chat-message ai"><div class="avatar">&#x1F916;</div><div class="content">数据已清除，一切重新开始。</div></div>`;
+  renderFileTree();
+  renderTabs();
+  renderBreadcrumb();
+  applySettingsToUI();
+  applySettings();
+  await persistFileSystem();
+  document.getElementById('settingsModal').classList.remove('show');
+  showToast('所有数据已清除');
+}
+
+// ─── Inline Completion (Ghost Text) ────────────────────────
+let inlineProvider = null;
+
+function updateInlineCompletionProvider() {
+  if (inlineProvider) {
+    inlineProvider.dispose();
+    inlineProvider = null;
+  }
+
+  if (settings.inlineComplete !== 'enabled') return;
+  if (!settings.apiEndpoint || !settings.apiKey) return;
+
+  inlineProvider = monaco.languages.registerInlineCompletionsProvider('*', {
+    provideInlineCompletions: async (model, position, context, token) => {
+      // Debounce: only trigger after user pauses
+      if (context.triggerKind !== monaco.languages.InlineCompletionTriggerKind.Automatic) return { items: [] };
+
+      const line = model.getLineContent(position.lineNumber);
+      const textBefore = line.substring(0, position.column - 1);
+      if (textBefore.trim().length < 3) return { items: [] };
+
+      try {
+        const prefix = model.getValueInRange({
+          startLineNumber: Math.max(1, position.lineNumber - 10),
+          startColumn: 1,
+          endLineNumber: position.lineNumber,
+          endColumn: position.column
+        });
+
+        const suffix = model.getValueInRange({
+          startLineNumber: position.lineNumber,
+          startColumn: position.column,
+          endLineNumber: Math.min(model.getLineCount(), position.lineNumber + 5),
+          endColumn: model.getLineMaxColumn(Math.min(model.getLineCount(), position.lineNumber + 5))
+        });
+
+        const lang = model.getLanguageId();
+        const messages = [
+          { role: 'system', content: `You are a code completion assistant. Complete the code after the cursor. Only output the completion, no explanation, no markdown. The code language is ${lang}.` },
+          { role: 'user', content: `Complete this code:\n\nPrefix:\n${prefix}\n\nSuffix:\n${suffix}\n\nCompletion after cursor:` }
+        ];
+
+        const completion = await callAI(messages, { temperature: 0.1, maxTokens: 256 });
+        const trimmed = completion.trim();
+
+        if (trimmed && trimmed.length < 500) {
+          return { items: [{ insertText: trimmed, range: new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column) }] };
+        }
+      } catch(e) {}
+      return { items: [] };
+    },
+    freeInlineCompletions: () => {}
+  });
+}
+
+// ─── Resize Handle ─────────────────────────────────────────
+function initResizeHandle(handleId, targetId, minWidth, side) {
+  const handle = document.getElementById(handleId);
+  const target = document.getElementById(targetId);
+  let isResizing = false, startX, startWidth;
+
+  handle.addEventListener('mousedown', (e) => {
+    isResizing = true; startX = e.clientX; startWidth = target.offsetWidth;
+    handle.classList.add('active');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!isResizing) return;
+    const diff = e.clientX - startX;
+    const newWidth = side === 'left' ? Math.max(minWidth, Math.min(500, startWidth + diff)) : Math.max(minWidth, Math.min(500, startWidth - diff));
+    target.style.width = newWidth + 'px';
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (isResizing) { isResizing = false; handle.classList.remove('active'); document.body.style.cursor = ''; document.body.style.userSelect = ''; }
+  });
+
+  handle.addEventListener('dblclick', () => { target.style.width = ''; });
+}
+
+// ─── Initialize ────────────────────────────────────────────
+async function init() {
+  // Load settings
+  loadSettings();
+
+  // Load file system
+  await loadFileSystem();
+  renderFileTree();
+
+  // Load Monaco
+  require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs' } });
+
+  require(['vs/editor/editor.main'], function () {
+    const container = document.getElementById('editorContainer');
+    editor = monaco.editor.create(container, {
+      value: '', language: 'plaintext', theme: settings.theme,
+      fontSize: settings.fontSize, tabSize: settings.tabSize,
+      minimap: { enabled: true, scale: 1, showSlider: 'mouseover' },
+      automaticLayout: true, scrollBeyondLastLine: false,
+      lineNumbers: 'on', renderWhitespace: 'selection',
+      bracketPairColorization: { enabled: true },
+      smoothScrolling: true, cursorBlinking: 'smooth',
+      cursorSmoothCaretAnimation: 'on', padding: { top: 12 },
+      suggest: { showWords: true, showSnippets: true },
+      folding: true, glyphMargin: true, lineDecorationsWidth: 8,
+      lineNumbersMinChars: 3, renderLineHighlight: 'all',
+      scrollbar: { verticalScrollbarSize: 8, horizontalScrollbarSize: 8 },
+      overviewRulerBorder: false, hideCursorInOverviewRuler: true, overviewRulerLanes: 0,
+      inlineSuggest: { enabled: true }
+    });
+
+    editor.onDidChangeCursorPosition((e) => {
+      document.getElementById('statusLnCol').textContent = `行 ${e.position.lineNumber}, 列 ${e.position.column}`;
+    });
+
+    editor.onDidChangeModelContent(() => {
+      if (activeFile && openFiles.has(activeFile)) {
+        openFiles.get(activeFile).dirty = true;
+        renderTabs();
+        autoSave();
+      }
+    });
+
+    // Context menu: Ask AI
+    editor.addAction({
+      id: 'ask-ai', label: 'Ask AI about selection',
+      contextMenuGroupId: 'navigation', contextMenuOrder: 1,
+      run: (ed) => {
+        const sel = ed.getSelection();
+        const text = ed.getModel().getValueInRange(sel);
+        if (text) {
+          document.getElementById('chatInput').value = '解释这段代码:\n```\n' + text + '\n```';
+          if (chatCollapsed) toggleChat();
+          sendChatMessage();
+        }
+      }
+    });
+
+    // Save shortcut
+    editor.addAction({
+      id: 'save-file', label: 'Save File',
+      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS],
+      run: () => persistCurrentFile()
+    });
+
+    // Command palette shortcut
+    editor.addAction({
+      id: 'command-palette', label: 'Command Palette',
+      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyP],
+      run: () => toggleCommandPalette()
+    });
+
+    // Tab key to accept inline completion
+    editor.addAction({
+      id: 'accept-inline', label: 'Accept Inline Completion',
+      keybindings: [monaco.KeyCode.Tab],
+      run: (ed) => {
+        const controller = ed.getContribution('editor.contrib.inlineCompletionsController');
+        if (controller) {
+          controller.accept();
+        }
+      }
+    });
+
+    // Set up inline completions
+    updateInlineCompletionProvider();
+
+    // Empty state handling
+    const observer = new MutationObserver(() => {
+      if (activeFile && editor.getModel()) {
+        document.getElementById('emptyState').style.display = 'none';
+      } else if (!activeFile || !editor.getModel()) {
+        if (openFiles.size === 0) document.getElementById('emptyState').style.display = 'flex';
+      }
+    });
+    observer.observe(document.getElementById('editorContainer'), { childList: true });
+  });
+
+  // Init resize handles
+  initResizeHandle('sidebarResize', 'sidebar', 160, 'left');
+  initResizeHandle('chatResize', 'chatPanel', 280, 'right');
+
+  // Chat input
+  const chatInput = document.getElementById('chatInput');
+  chatInput.addEventListener('input', () => {
+    chatInput.style.height = 'auto';
+    chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
+  });
+  chatInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); }
+  });
+
+  // Command palette input
+  document.getElementById('cmdInput').addEventListener('input', (e) => filterCommands(e.target.value));
+  document.getElementById('cmdInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { document.getElementById('commandPalette').classList.remove('show'); commandPaletteVisible = false; }
+    if (e.key === 'Enter') {
+      const selected = document.querySelector('#cmdResults .result-item.selected');
+      if (selected) selected.click();
+    }
+  });
+
+  // Settings modal
+  document.getElementById('btnCloseSettings').addEventListener('click', () => document.getElementById('settingsModal').classList.remove('show'));
+  document.getElementById('btnCancelSettings').addEventListener('click', () => document.getElementById('settingsModal').classList.remove('show'));
+  document.getElementById('btnSaveSettings').addEventListener('click', saveSettingsFromUI);
+  document.getElementById('btnResetSettings').addEventListener('click', resetSettings);
+  document.getElementById('btnResetData').addEventListener('click', resetAllData);
+  document.getElementById('settingsModal').addEventListener('click', (e) => { if (e.target === e.currentTarget) e.currentTarget.classList.remove('show'); });
+
+  // Model selector change
+  document.getElementById('settingModel').addEventListener('change', (e) => {
+    document.getElementById('settingCustomModel').style.display = e.target.value === 'custom' ? 'block' : 'none';
+  });
+
+  // Settings live preview
+  document.getElementById('settingFontSize').addEventListener('input', (e) => {
+    document.getElementById('fontSizeLabel').textContent = e.target.value + 'px';
+    if (editor) editor.updateOptions({ fontSize: parseInt(e.target.value) });
+  });
+
+  // Theme options
+  document.querySelectorAll('#themeOptions .theme-option').forEach(el => {
+    el.addEventListener('click', () => {
+      document.querySelectorAll('#themeOptions .theme-option').forEach(e => e.classList.remove('selected'));
+      el.classList.add('selected');
+      const theme = el.dataset.theme;
+      monaco.editor.setTheme(theme);
+      if (editor) editor.updateOptions({ theme });
+    });
+  });
+
+  // Chat send
+  document.getElementById('btnSend').addEventListener('click', sendChatMessage);
+  document.getElementById('btnClearChat').addEventListener('click', () => {
+    document.getElementById('chatMessages').innerHTML = '';
+    addChatMessage('ai', '对话已清空。有什么我可以帮助你的？');
+  });
+
+  // Activity bar
+  document.getElementById('btnExplorer').addEventListener('click', toggleSidebar);
+  document.getElementById('btnAI').addEventListener('click', toggleChat);
+  document.getElementById('btnSettings').addEventListener('click', toggleSettings);
+  document.getElementById('btnCloseChat').addEventListener('click', () => { document.getElementById('chatPanel').classList.add('collapsed'); chatCollapsed = true; });
+
+  // New file/folder
+  document.getElementById('btnNewFile').addEventListener('click', showTemplateDialog);
+  document.getElementById('btnNewFolder').addEventListener('click', () => {
+    const name = prompt('文件夹名:', 'new-folder');
+    if (name) createFolder('/' + name);
+  });
+  document.getElementById('btnRefresh').addEventListener('click', () => { renderFileTree(); showToast('已刷新'); });
+
+  // Template dialog
+  document.getElementById('btnCloseTemplate').addEventListener('click', () => document.getElementById('templateDialog').classList.remove('show'));
+  document.getElementById('btnCancelTemplate').addEventListener('click', () => document.getElementById('templateDialog').classList.remove('show'));
+  document.getElementById('btnCreateTemplate').addEventListener('click', createFromTemplate);
+  document.getElementById('templateFileName').addEventListener('input', (e) => {
+    document.getElementById('btnCreateTemplate').disabled = !e.target.value.trim() || !selectedTemplate;
+  });
+  document.getElementById('templateFileName').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') createFromTemplate();
+  });
+
+  // Diff panel
+  document.getElementById('btnDiffAccept').addEventListener('click', acceptDiff);
+  document.getElementById('btnDiffReject').addEventListener('click', closeDiff);
+  document.getElementById('diffOverlay').addEventListener('click', (e) => { if (e.target === e.currentTarget) closeDiff(); });
+
+  // Chat hints
+  document.querySelectorAll('.chat-hint button').forEach(btn => {
+    btn.addEventListener('click', () => { const hint = btn.dataset.hint; if (hint) sendHint(hint); });
+  });
+
+  // File tree click
+  document.getElementById('fileTree').addEventListener('click', (e) => {
+    const item = e.target.closest('.tree-item');
+    if (!item || item.dataset.type !== 'file') return;
+    openFile(item.dataset.path);
+  });
+
+  // Context menu hide
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.context-menu')) hideContextMenu();
+  });
+
+  // Global shortcuts
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'p' && !e.shiftKey) { e.preventDefault(); toggleCommandPalette(); }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'n' && !e.shiftKey) { e.preventDefault(); showTemplateDialog(); }
+    if ((e.ctrlKey || e.metaKey) && e.key === '`') { e.preventDefault(); toggleChat(); }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'j' && !e.shiftKey) { e.preventDefault(); toggleTerminal(); }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'b' && !e.shiftKey) { e.preventDefault(); toggleSidebar(); }
+    if ((e.ctrlKey || e.metaKey) && e.key === ',') { e.preventDefault(); toggleSettings(); }
+    if (e.key === 'Escape' && commandPaletteVisible) { document.getElementById('commandPalette').classList.remove('show'); commandPaletteVisible = false; }
+  });
+
+  // Update AI status
+  updateAIStatus();
+
+  // Init @ autocomplete
+  initAutocomplete();
+
+  // Init linter
+  loadLinterConfig();
+  initLinterConfigUI();
+  initLinter();
+
+  // Init preview
+  initPreview();
+}
+
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('collapsed');
+  sidebarCollapsed = !sidebarCollapsed;
+}
+
+function toggleChat() {
+  document.getElementById('chatPanel').classList.toggle('collapsed');
+  chatCollapsed = !chatCollapsed;
+  if (!chatCollapsed) setTimeout(() => document.getElementById('chatInput').focus(), 100);
+}
+
+function startAgentMode() {
+  if (chatCollapsed) toggleChat();
+  const input = document.getElementById('chatInput');
+  input.value = '/agent 帮我完成以下任务：';
+  input.focus();
+  setTimeout(() => {
+    input.setSelectionRange(input.value.length, input.value.length);
+  }, 50);
+  showToast('在 /agent 后面输入你的任务，Agent 将自动规划并执行');
+}
+
+function startComposerMode() {
+  if (chatCollapsed) toggleChat();
+  const input = document.getElementById('chatInput');
+  input.value = '/composer 帮我修改：';
+  input.focus();
+  setTimeout(() => {
+    input.setSelectionRange(input.value.length, input.value.length);
+  }, 50);
+  showToast('在 /composer 后面输入你的需求，Composer 将生成多文件变更计划');
+}
+
+function toggleFullscreen() {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen();
+}
+
+// ─── Boot ──────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', init);
+</script>
+<script src="terminal.js"></script>
+<script src="git.js"></script>
+<script src="agent.js"></script>
+<script src="composer.js"></script>
+<script src="context.js"></script>
+<script src="preview.js"></script>
+</body>
+</html>

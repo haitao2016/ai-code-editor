@@ -1,0 +1,83 @@
+{
+  "name": "ai-code-editor",
+  "version": "3.0.0",
+  "description": "AI Code Editor — A Cursor-like AI-powered code editor",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "dev:electron": "vite",
+    "dev:server": "npx tsx server/index.ts",
+    "build": "vite build",
+    "build:electron": "vite build && electron-builder",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@monaco-editor/loader": "^1.7.0",
+    "lib0": "^0.2.117",
+    "monaco-editor": "^0.55.1",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16",
+    "ws": "^8.21.0",
+    "y-monaco": "^0.1.6",
+    "y-websocket": "^3.0.0",
+    "yjs": "^13.6.31",
+    "zustand": "^5.0.14"
+  },
+  "optionalDependencies": {
+    "node-pty": "^1.1.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1",
+    "electron": "^42.4.1",
+    "electron-builder": "^26.15.3",
+    "vite-plugin-electron": "^1.0.4",
+    "vite-plugin-electron-renderer": "^1.0.0",
+    "vitest": "^4.1.9"
+  },
+  "build": {
+    "appId": "com.aiceditor.app",
+    "productName": "AI Code Editor",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*"
+    ],
+    "npmRebuild": false,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": null
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "icon": null
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "icon": null
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": null,
+      "uninstallerIcon": null
+    }
+  }
+}
