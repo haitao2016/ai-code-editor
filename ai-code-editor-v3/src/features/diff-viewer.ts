@@ -160,8 +160,8 @@ function initDiffEditor(
   });
 
   // Click on diff to scroll to change
-  (window as any)._navigateDiff = monacoNavigateDiff;
-  (window as any)._diffEditor = diffEditor;
+  window._navigateDiff = monacoNavigateDiff;
+  window._diffEditor = diffEditor;
 }
 
 function monacoNavigateDiff(direction: number): void {

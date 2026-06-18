@@ -2,6 +2,7 @@ import { defineConfig } from 'vite';
 import { resolve } from 'path';
 import electron from 'vite-plugin-electron';
 import electronRenderer from 'vite-plugin-electron-renderer';
+import monacoEditorPlugin from 'vite-plugin-monaco-editor';
 
 export default defineConfig({
   base: './',
@@ -27,6 +28,9 @@ export default defineConfig({
     },
   },
   plugins: [
+    monacoEditorPlugin({
+      languageWorkers: ['editorWorkerService', 'typescript', 'json', 'css', 'html'],
+    }),
     electron([
       {
         entry: 'electron/main.ts',

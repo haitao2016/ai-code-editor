@@ -4,6 +4,11 @@
 import { useFilesStore, useEditorStore } from '../core/stores';
 import { openFileTab, getEditor } from '../core/editor';
 import { getLanguageFromPath, saveFile, loadAllFiles } from '../core/files';
+import { i18n, t } from '../core/i18n';
+
+function h(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
 
 interface SearchMatch {
   file: string;
@@ -54,9 +59,9 @@ export function showSearchPanel(): void {
     <div style="padding:10px 14px;border-bottom:1px solid var(--border-color)">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
         <input id="searchInput" type="text" placeholder="搜索 (支持正则)" style="flex:1;background:var(--bg-secondary);border:1px solid var(--border-color);color:var(--text-primary);padding:6px 10px;border-radius:4px;font-size:13px;outline:none;">
-        <button id="btnSearchPrev" title="上一个" style="background:var(--bg-hover);border:1px solid var(--border-color);color:var(--text-primary);width:28px;height:28px;border-radius:4px;cursor:pointer;font-size:12px">▲</button>
-        <button id="btnSearchNext" title="下一个" style="background:var(--bg-hover);border:1px solid var(--border-color);color:var(--text-primary);width:28px;height:28px;border-radius:4px;cursor:pointer;font-size:12px">▼</button>
-        <button id="btnSearchClose" title="关闭" style="background:transparent;border:none;color:var(--text-secondary);cursor:pointer;font-size:16px">✕</button>
+        <button id="btnSearchPrev" title=i18n.t('search.上一个') style="background:var(--bg-hover);border:1px solid var(--border-color);color:var(--text-primary);width:28px;height:28px;border-radius:4px;cursor:pointer;font-size:12px">▲</button>
+        <button id="btnSearchNext" title=i18n.t('search.下一个') style="background:var(--bg-hover);border:1px solid var(--border-color);color:var(--text-primary);width:28px;height:28px;border-radius:4px;cursor:pointer;font-size:12px">▼</button>
+        <button id="btnSearchClose" title=i18n.t('search.关闭') style="background:transparent;border:none;color:var(--text-secondary);cursor:pointer;font-size:16px">✕</button>
       </div>
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
         <input id="searchReplace" type="text" placeholder="替换为..." style="flex:1;min-width:100px;background:var(--bg-secondary);border:1px solid var(--border-color);color:var(--text-primary);padding:4px 8px;border-radius:4px;font-size:12px;outline:none;">
@@ -208,7 +213,7 @@ function matchGlob(filePath: string, pattern: string): boolean {
 function renderSearchResults(matches: SearchMatch[], container: HTMLElement, statsEl: HTMLElement): void {
   if (matches.length === 0) {
     container.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-secondary);font-size:12px">未找到结果</div>';
-    statsEl.textContent = '0 个结果';
+    statsEl.textContent = i18n.t('app.0个结果');
     return;
   }
 
@@ -223,8 +228,8 @@ function renderSearchResults(matches: SearchMatch[], container: HTMLElement, sta
 
   let html = '';
   for (const [file, fileMatches] of grouped.entries()) {
-    html += `<div style="padding:6px 14px;background:var(--bg-secondary);font-size:12px;font-weight:500;color:var(--text-primary);cursor:pointer" onclick="window._openFile?.('${file}')">
-      📄 ${file} <span style="color:var(--text-secondary);font-weight:400">(${fileMatches.length})</span>
+    html += `<div style="padding:6px 14px;background:var(--bg-secondary);font-size:12px;font-weight:500;color:var(--text-primary);cursor:pointer" data-open="${h(file)}">
+      📄 ${h(file)} <span style="color:var(--text-secondary);font-weight:400">(${fileMatches.length})</span>
     </div>`;
     for (const match of fileMatches) {
       const highlighted = highlightMatch(match.content, match.matchStart, match.matchEnd);
@@ -237,6 +242,15 @@ function renderSearchResults(matches: SearchMatch[], container: HTMLElement, sta
   }
 
   container.innerHTML = html;
+
+  // Click handler for file group headers
+  container.querySelectorAll('[data-open]').forEach((item) => {
+    item.addEventListener('click', () => {
+      const file = (item as HTMLElement).dataset.open!;
+      const entry = useFilesStore.getState().files.get(file);
+      if (entry) openFileTab(file, entry.content);
+    });
+  });
 
   // Click handler: jump to file and line
   container.querySelectorAll('.search-result-item').forEach((item) => {

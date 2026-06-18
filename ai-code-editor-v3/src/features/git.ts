@@ -1,9 +1,33 @@
 // ============================================================
 // Git 面板 — v4.0 真实 Git (isomorphic-git + HTTP/fs)
 // ============================================================
+import { bus } from '../core/event-bus';
 import { useGitStore, useFilesStore } from '../core/stores';
 import { saveFile, loadAllFiles } from '../core/files';
 import type { FileEntry } from '../types';
+
+// ─── EventBus: git actions (subscribe for decoupling) ──
+bus.on('git:stage', (data: { path: string }) => { stageFile(data.path); });
+bus.on('git:unstage', (data: { path: string }) => { unstageFile(data.path); });
+bus.on('git:stage-all', () => { stageAll(); });
+bus.on('git:unstage-all', () => { unstageAll(); });
+bus.on('git:commit', () => { gitCommit(); });
+bus.on('git:refresh', () => { refreshGitStatus(); renderGitPanel(); });
+bus.on('git:create-branch', () => {
+  const input = document.getElementById('gitBranchInput') as HTMLInputElement;
+  if (input?.value) { createBranch(input.value); input.value = ''; }
+});
+bus.on('git:add-remote', () => {
+  const input = document.getElementById('gitRemoteInput') as HTMLInputElement;
+  if (input?.value) { addRemote('origin', input.value); input.value = ''; }
+});
+bus.on('git:remove-remote', (data: { name: string }) => { removeRemote(data.name); });
+bus.on('git:push', (data: { remote: string }) => { gitPush(data.remote); });
+
+function h(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function pathBasename(p: string): string { return p.split('/').pop() || p; }
 
 // ─── Git State ─────────────────────────────────────────────
 interface GitState {
@@ -337,7 +361,7 @@ function renderGitPanel(): void {
         ${gitState.remotes.length > 0 ? `<span style="font-size:10px;opacity:0.6">⇄ ${gitState.remotes.map((r) => r.name).join(', ')}</span>` : ''}
       </span>
       <div style="display:flex;gap:4px">
-        <button onclick="window._gitRefresh?.()" title="刷新状态" style="background:var(--bg-hover);border:1px solid var(--border-color);color:var(--text-secondary);padding:2px 6px;border-radius:4px;cursor:pointer;font-size:10px">↻</button>
+        <button onclick="window._gitRefresh?.()" title=i18n.t('git.刷新状态') style="background:var(--bg-hover);border:1px solid var(--border-color);color:var(--text-secondary);padding:2px 6px;border-radius:4px;cursor:pointer;font-size:10px">↻</button>
       </div>
     </div>
 
@@ -357,7 +381,7 @@ function renderGitPanel(): void {
       <div class="git-file-item staged">
         <span class="git-status-icon staged">✓</span>
         <span style="flex:1">${f}</span>
-        <button onclick="window._gitUnstage?.('${f}')" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:10px">-</button>
+        <button onclick="window._gitUnstage?.('${h(f)}')" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:10px">-</button>
       </div>
     `).join('')}
     ` : ''}
@@ -370,8 +394,9 @@ function renderGitPanel(): void {
     ${modified.map((f) => `
       <div class="git-file-item">
         <span class="git-status-icon modified">M</span>
-        <span style="flex:1" onclick="window._openFile?.('${f}')" style="cursor:pointer">${f}</span>
-        <button onclick="window._gitStage?.('${f}')" style="background:none;border:none;color:var(--info);cursor:pointer;font-size:10px">+</button>
+        <span style="flex:1;cursor:pointer" data-open="${h(f)}">${h(pathBasename(f))}</span>
+        <span style="font-size:10px;color:var(--text-muted)">${h(f)}</span>
+        <button data-stage="${h(f)}" style="background:none;border:none;color:var(--info);cursor:pointer;font-size:10px">+</button>
       </div>
     `).join('')}
     ` : ''}
@@ -382,8 +407,9 @@ function renderGitPanel(): void {
     ${untracked.map((f) => `
       <div class="git-file-item">
         <span class="git-status-icon added">U</span>
-        <span style="flex:1" onclick="window._openFile?.('${f}')" style="cursor:pointer">${f}</span>
-        <button onclick="window._gitStage?.('${f}')" style="background:none;border:none;color:var(--info);cursor:pointer;font-size:10px">+</button>
+        <span style="flex:1;cursor:pointer" data-open="${h(f)}">${h(pathBasename(f))}</span>
+        <span style="font-size:10px;color:var(--text-muted)">${h(f)}</span>
+        <button data-stage="${h(f)}" style="background:none;border:none;color:var(--info);cursor:pointer;font-size:10px">+</button>
       </div>
     `).join('')}
     ` : ''}
@@ -412,7 +438,7 @@ function renderGitPanel(): void {
       ${gitState.remotes.map((r) => `
         <div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;font-size:11px;color:var(--text-secondary)">
           <span>⇄ ${r.name}: ${r.url}</span>
-          <button onclick="window._gitRemoveRemote?.('${r.name}')" style="background:none;border:none;color:var(--error);cursor:pointer;font-size:10px">✕</button>
+          <button onclick="window._gitRemoveRemote?.('${h(r.name)}')" style="background:none;border:none;color:var(--error);cursor:pointer;font-size:10px">✕</button>
         </div>
       `).join('')}
     </div>
@@ -440,32 +466,17 @@ function renderGitPanel(): void {
     </div>
   `;
 
-  // Wire handlers
-  (window as any)._gitStage = stageFile;
-  (window as any)._gitUnstage = unstageFile;
-  (window as any)._gitStageAll = stageAll;
-  (window as any)._gitUnstageAll = unstageAll;
-  (window as any)._gitCommit = () => gitCommit();
-  (window as any)._gitRefresh = () => {
-    refreshGitStatus();
-    renderGitPanel();
-  };
-  (window as any)._gitCreateBranch = () => {
-    const input = document.getElementById('gitBranchInput') as HTMLInputElement;
-    if (input?.value) {
-      createBranch(input.value);
-      input.value = '';
-    }
-  };
-  (window as any)._gitAddRemote = () => {
-    const input = document.getElementById('gitRemoteInput') as HTMLInputElement;
-    if (input?.value) {
-      addRemote('origin', input.value);
-      input.value = '';
-    }
-  };
-  (window as any)._gitRemoveRemote = removeRemote;
-  (window as any)._gitPush = () => gitPush('origin');
+  // Wire handlers (delegate to EventBus for HTML onclick compatibility)
+  window._gitStage = (path: string) => bus.emit('git:stage', { path });
+  window._gitUnstage = (path: string) => bus.emit('git:unstage', { path });
+  window._gitStageAll = () => bus.emit('git:stage-all');
+  window._gitUnstageAll = () => bus.emit('git:unstage-all');
+  window._gitCommit = () => bus.emit('git:commit');
+  window._gitRefresh = () => bus.emit('git:refresh');
+  window._gitCreateBranch = () => bus.emit('git:create-branch');
+  window._gitAddRemote = () => bus.emit('git:add-remote');
+  window._gitRemoveRemote = (name: string) => bus.emit('git:remove-remote', { name });
+  window._gitPush = () => bus.emit('git:push', { remote: 'origin' });
 }
 
 // ─── Public API ────────────────────────────────────────────
@@ -516,4 +527,4 @@ export function initGitPanel(): void {
 }
 
 // ─── Global exports ────────────────────────────────────────
-(window as any)._gitCommit = () => gitCommit();
+window._gitCommit = () => gitCommit();

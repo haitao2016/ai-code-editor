@@ -1,12 +1,14 @@
 // ============================================================
 // Monaco Editor 封装
 // ============================================================
-import { useEditorSettingsStore, useEditorStore, useFilesStore } from './stores';
+import * as monaco from 'monaco-editor';
+import { useEditorSettingsStore, useEditorStore, useFilesStore, useAISettingsStore } from './stores';
 import { getLanguageFromPath, saveFile } from './files';
+import { i18n, t } from './i18n';
 
 let monacoEditor: any = null;
-let monaco: any = null;
 let inlineProvider: any = null;
+let lspChangeDisposable: any = null;
 
 export function getEditor(): any {
   return monacoEditor;
@@ -16,87 +18,84 @@ export function getMonaco(): any {
   return monaco;
 }
 
-export async function initMonaco(container: HTMLElement): Promise<void> {
-  return new Promise((resolve) => {
-    (window as any).require.config({
-      paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs' },
+// ─── Monaco initialization (local npm bundle, no CDN) ─────
+let monacoInitPromise: Promise<void> | null = null;
+
+export function initMonaco(container: HTMLElement): Promise<void> {
+  if (monacoInitPromise) return monacoInitPromise;
+
+  monacoInitPromise = new Promise<void>((resolve) => {
+    // Define dark theme
+    monaco.editor.defineTheme('ai-code-dark', {
+      base: 'vs-dark',
+      inherit: true,
+      rules: [],
+      colors: {
+        'editor.background': '#1e1e2e',
+        'editor.foreground': '#cdd6f4',
+        'editor.lineHighlightBackground': '#31324430',
+        'editor.selectionBackground': '#45475a60',
+        'editorCursor.foreground': '#6366f1',
+        'editorLineNumber.foreground': '#6c708660',
+        'editorLineNumber.activeForeground': '#a6adc8',
+        'editor.inactiveSelectionBackground': '#45475a30',
+      },
     });
-    (window as any).require(['vs/editor/editor.main'], () => {
-      monaco = (window as any).monaco;
 
-      // Define dark theme
-      monaco.editor.defineTheme('ai-code-dark', {
-        base: 'vs-dark',
-        inherit: true,
-        rules: [],
-        colors: {
-          'editor.background': '#1e1e2e',
-          'editor.foreground': '#cdd6f4',
-          'editor.lineHighlightBackground': '#31324430',
-          'editor.selectionBackground': '#45475a60',
-          'editorCursor.foreground': '#6366f1',
-          'editorLineNumber.foreground': '#6c708660',
-          'editorLineNumber.activeForeground': '#a6adc8',
-          'editor.inactiveSelectionBackground': '#45475a30',
-        },
-      });
+    const settings = useEditorSettingsStore.getState();
 
-      const settings = useEditorSettingsStore.getState();
-
-      monacoEditor = monaco.editor.create(container, {
-        value: '',
-        language: 'plaintext',
-        theme: settings.theme === 'vs-dark' ? 'ai-code-dark' : settings.theme,
-        fontSize: settings.fontSize,
-        tabSize: settings.tabSize,
-        minimap: { enabled: true, scale: 1, showSlider: 'mouseover' as any },
-        scrollBeyondLastLine: false,
-        wordWrap: 'on',
-        automaticLayout: true,
-        bracketPairColorization: { enabled: true },
-        guides: { bracketPairs: true, indentation: true },
-        suggest: { showWords: true, showSnippets: true },
-        renderWhitespace: 'selection',
-        smoothScrolling: true,
-        cursorBlinking: 'smooth',
-        cursorSmoothCaretAnimation: 'on',
-        padding: { top: 8 },
-        lineNumbers: 'on',
-        glyphMargin: true,
-        folding: true,
-        lineDecorationsWidth: 8,
-        lineNumbersMinChars: 3,
-      });
-
-      // Cursor position tracking
-      monacoEditor.onDidChangeCursorPosition((e: any) => {
-        const pos = e.position;
-        const el = document.getElementById('statusLnCol');
-        if (el) el.textContent = `行 ${pos.lineNumber}, 列 ${pos.column}`;
-      });
-
-      // Content change -> mark dirty
-      monacoEditor.onDidChangeModelContent(() => {
-        const active = useEditorStore.getState().activeFile;
-        if (active) {
-          useEditorStore.getState().markDirty(active);
-          updateSaveStatus();
-        }
-      });
-
-      setupInlineCompletion();
-      resolve();
+    monacoEditor = monaco.editor.create(container, {
+      value: '',
+      language: 'plaintext',
+      theme: settings.theme === 'vs-dark' ? 'ai-code-dark' : settings.theme,
+      fontSize: settings.fontSize,
+      tabSize: settings.tabSize,
+      minimap: { enabled: true, scale: 1, showSlider: 'mouseover' as any },
+      scrollBeyondLastLine: false,
+      wordWrap: 'on',
+      automaticLayout: true,
+      bracketPairColorization: { enabled: true },
+      guides: { bracketPairs: true, indentation: true },
+      suggest: { showWords: true, showSnippets: true },
+      renderWhitespace: 'selection',
+      smoothScrolling: true,
+      cursorBlinking: 'smooth',
+      cursorSmoothCaretAnimation: 'on',
+      padding: { top: 8 },
+      lineNumbers: 'on',
+      glyphMargin: true,
+      folding: true,
+      lineDecorationsWidth: 8,
+      lineNumbersMinChars: 3,
     });
+
+    // Cursor position tracking
+    monacoEditor.onDidChangeCursorPosition((e: any) => {
+      const pos = e.position;
+      const el = document.getElementById('statusLnCol');
+      if (el) el.textContent = `行 ${pos.lineNumber}, 列 ${pos.column}`;
+    });
+
+    // Content change -> mark dirty
+    monacoEditor.onDidChangeModelContent(() => {
+      const active = useEditorStore.getState().activeFile;
+      if (active) {
+        useEditorStore.getState().markDirty(active);
+        updateSaveStatus();
+      }
+    });
+
+
+    setupInlineCompletion();
+    resolve();
   });
+
+  return monacoInitPromise;
 }
 
 // ─── Editor Operations ─────────────────────────────────────
 export function setEditorContent(content: string, language?: string): void {
-  if (!monacoEditor) {
-    // Store pending and apply when editor is ready
-    (window as any).__pendingContent = { content, language };
-    return;
-  }
+  if (!monacoEditor) return;
   const m = monacoEditor.getModel();
   if (!m) return;
   m.setValue(content);
@@ -117,6 +116,17 @@ export function openFileTab(path: string, content: string): void {
   updateEditorLanguage(lang);
   updateBreadcrumb(path);
   updateTitle(path);
+
+  // Large file detection
+  import('./large-file').then((m) => {
+    const state = m.detectLargeFile(path, content);
+    if (state.isLarge) {
+      m.applyLargeFileOptimizations(path, state);
+    }
+  });
+
+  // LSP sync — notify open/close on file switches
+  setupLSPChangeListener(path, lang);
 }
 
 function updateEditorLanguage(lang: string): void {
@@ -146,14 +156,14 @@ function updateTitle(path: string): void {
 
 function updateSaveStatus(): void {
   const el = document.getElementById('statusSave');
-  if (el) el.textContent = '● 未保存';
+  if (el) el.textContent = i18n.t('app.未保存');
 }
 
 export function markSaved(): void {
   const store = useEditorStore.getState();
   if (store.activeFile) store.markClean(store.activeFile);
   const el = document.getElementById('statusSave');
-  if (el) el.textContent = '💾 已保存';
+  if (el) el.textContent = i18n.t('html.已保存');
 }
 
 // ─── Save ──────────────────────────────────────────────────
@@ -317,5 +327,42 @@ export function syncEditorSettings(): void {
     fontSize: settings.fontSize,
     tabSize: settings.tabSize,
     theme: settings.theme === 'vs-dark' ? 'ai-code-dark' : settings.theme,
+  });
+}
+
+// ─── LSP Sync ──────────────────────────────────────────────
+export function setupLSPChangeListener(filePath: string, languageId: string): void {
+  if (!monacoEditor) return;
+
+  // Remove old listener
+  if (lspChangeDisposable) {
+    lspChangeDisposable.dispose();
+    lspChangeDisposable = null;
+  }
+
+  // Notify LSP of new open + change events
+  let lastVersion = 0;
+  const uri = `file:///${filePath.replace(/\\/g, '/')}`;
+
+  // Open document in LSP
+  const model = monacoEditor.getModel();
+  if (model) {
+    try {
+      import('./lsp-bridge').then(({ startLSPForFile, notifyLSPChange }) => {
+        startLSPForFile(languageId, filePath, model.getValue()).catch(() => {});
+      });
+    } catch {}
+  }
+
+  // Change listener
+  lspChangeDisposable = monacoEditor.onDidChangeModelContent(() => {
+    lastVersion++;
+    const m = monacoEditor?.getModel();
+    if (!m) return;
+    try {
+      import('./lsp-bridge').then(({ notifyLSPChange }) => {
+        notifyLSPChange(uri, languageId, m.getValue());
+      });
+    } catch {}
   });
 }

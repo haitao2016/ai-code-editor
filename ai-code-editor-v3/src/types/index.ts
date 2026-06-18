@@ -97,6 +97,10 @@ export interface ModelConfig {
   model: string;
   apiKey?: string;
   capabilities: ModelCapability[];
+  /** 是否为本地模型（如 Ollama），无需 API Key */
+  local?: boolean;
+  /** 是否需要 API Key，本地模型设为 false */
+  requireApiKey?: boolean;
 }
 
 export interface ModelCapability {

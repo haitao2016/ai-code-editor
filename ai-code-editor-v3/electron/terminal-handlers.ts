@@ -4,6 +4,7 @@
 import { ipcMain } from 'electron';
 import * as os from 'os';
 import * as path from 'path';
+import { exec, spawn } from 'child_process';
 
 let ptyModule: any = null;
 let fallbackMode = false;
@@ -100,5 +101,86 @@ export function setupTerminal(): void {
       term.pty.kill();
     }
     terminals.delete(id);
+  });
+
+  // ─── Agent command execution: real shell commands ────────
+  ipcMain.handle('exec:command', async (_event, command: string, cwd?: string) => {
+    const workDir = cwd || process.cwd();
+    const timeout = 30000; // 30s timeout
+
+    return new Promise<{ success: boolean; stdout: string; stderr: string; exitCode: number }>((resolve) => {
+      const child = exec(command, {
+        cwd: workDir,
+        timeout,
+        maxBuffer: 1024 * 1024, // 1MB max output
+        env: { ...process.env },
+        shell: process.platform === 'win32'
+          ? (process.env.COMSPEC || 'cmd.exe')
+          : (process.env.SHELL || '/bin/bash'),
+      }, (error, stdout, stderr) => {
+        resolve({
+          success: !error,
+          stdout: stdout || '',
+          stderr: stderr || '',
+          exitCode: error?.code || 0,
+        });
+      });
+
+      // Ensure cleanup on timeout
+      setTimeout(() => {
+        if (child.exitCode === null) {
+          child.kill();
+        }
+      }, timeout);
+    });
+  });
+
+  // ─── Agent: spawn with real-time output ─────────────────
+  ipcMain.handle('exec:spawn', async (event, command: string, args: string[], cwd?: string) => {
+    const workDir = cwd || process.cwd();
+
+    return new Promise<{ success: boolean; stdout: string; stderr: string; exitCode: number }>((resolve) => {
+      const child = spawn(command, args, {
+        cwd: workDir,
+        env: { ...process.env },
+        shell: process.platform === 'win32',
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      child.stdout.on('data', (data: Buffer) => {
+        stdout += data.toString();
+      });
+
+      child.stderr.on('data', (data: Buffer) => {
+        stderr += data.toString();
+      });
+
+      child.on('close', (code) => {
+        resolve({
+          success: code === 0,
+          stdout,
+          stderr,
+          exitCode: code || 0,
+        });
+      });
+
+      child.on('error', (err) => {
+        resolve({
+          success: false,
+          stdout,
+          stderr: err.message,
+          exitCode: 1,
+        });
+      });
+
+      // Timeout after 60s
+      setTimeout(() => {
+        if (!child.killed) {
+          child.kill();
+        }
+      }, 60000);
+    });
   });
 }

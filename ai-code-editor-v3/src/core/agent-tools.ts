@@ -62,7 +62,7 @@ export function defineAgentTools(): AgentTool[] {
     },
     {
       name: 'run_command',
-      description: 'Run a shell command (simulated terminal). Use for npm install, npm run, git, etc.',
+      description: 'Run a shell command. Use for npm install, npm run, git, ls, cat, etc. Commands execute in the project workspace directory.',
       parameters: {
         type: 'object',
         properties: {
@@ -72,9 +72,27 @@ export function defineAgentTools(): AgentTool[] {
       },
       execute: async (params) => {
         const cmd = params.command.trim();
+
+        // Try real execution via Electron API
+        const electronAPI = window.electronAPI;
+        if (electronAPI?.exec?.command) {
+          try {
+            const result = await electronAPI.exec.command(cmd);
+            const output = result.stdout || '';
+            const errors = result.stderr || '';
+            if (result.success) {
+              return output + (errors ? `\n[stderr]\n${errors}` : '');
+            } else {
+              return `Command failed (exit code ${result.exitCode}):\n${errors || output}`;
+            }
+          } catch (err: any) {
+            // Fall back to simulation if IPC fails
+          }
+        }
+
+        // ─── Simulation fallback for web mode ────────────
         const files = useFilesStore.getState().files;
 
-        // Simulate common commands
         if (cmd === 'ls' || cmd === 'dir') {
           const entries = Array.from(files.entries()).map(([path]) => path).sort();
           return entries.length > 0 ? entries.join('\n') : '(empty directory)';
@@ -98,18 +116,18 @@ export function defineAgentTools(): AgentTool[] {
           return `Created directory: ${dir}`;
         }
         if (cmd.startsWith('npm install')) {
-          return 'Simulated: npm install completed. Packages installed successfully.\nadded 42 packages in 2.3s';
+          return 'Simulated: npm install completed.\nadded 42 packages in 2.3s\n[Note: Run in Electron for real npm execution]';
         }
         if (cmd.startsWith('npm run')) {
-          return 'Simulated: npm run completed. Build successful.\nCompiled successfully in 1.8s';
+          return 'Simulated: npm run completed. Build successful.\n[Note: Run in Electron for real npm execution]';
         }
         if (cmd.startsWith('echo ')) {
           return cmd.slice(5).trim();
         }
         if (cmd.startsWith('node ')) {
-          return 'Simulated: node script executed successfully.';
+          return 'Simulated: node script executed successfully.\n[Note: Run in Electron for real execution]';
         }
-        return `Simulated output for: ${cmd}\nCommand executed successfully.`;
+        return `Simulated output for: ${cmd}\n[Note: Running in web mode — commands are simulated. Use Electron for real execution.]`;
       },
     },
     {
@@ -170,86 +188,102 @@ export function defineAgentTools(): AgentTool[] {
   ];
 }
 
-function buildToolsPrompt(tools: AgentTool[]): string {
-  return `You have access to the following tools:\n\n${tools
-    .map(
-      (t) =>
-        `- ${t.name}: ${t.description}\n  Parameters: ${JSON.stringify(t.parameters.properties)}`
-    )
-    .join('\n')}\n\nTo use a tool, respond with a JSON block like:\n\`\`\`tool\n{"tool": "tool_name", "params": {...}}\n\`\`\``;
-}
-
 export async function runAgent(
   intent: string,
   onStep: (step: string) => void,
   onDone: (summary: string) => void
 ): Promise<void> {
   const tools = defineAgentTools();
-  const { callAIStream } = await import('./ai');
+  const { callAIStream, createAISignal } = await import('./ai');
 
   onStep('分析任务意图...');
 
-  // Step 1: Plan
-  const planMessages = [
+  const planMessages: { role: string; content: string; tool_calls?: any[]; tool_call_id?: string; name?: string }[] = [
     {
       role: 'system',
-      content: `You are an AI coding agent. Plan how to accomplish the user's task using the available tools.\n\n${buildToolsPrompt(
-        tools
-      )}\n\nFirst, create a step-by-step plan. Then execute each step by calling tools. Be concise.`,
+      content: `You are an AI coding agent. Use the available tools to accomplish the user's task. Plan first, then execute step by step using function calls. Be concise and efficient.`,
     },
     {
       role: 'user',
-      content: `Task: ${intent}\n\nCreate a plan and start executing. You can use tools by outputting:\n\`\`\`tool\n{"tool": "tool_name", "params": {...}}\n\`\`\``,
+      content: `Task: ${intent}`,
     },
   ];
 
-  let fullResponse = '';
+  const openaiTools = tools.map((t) => ({
+    type: 'function' as const,
+    function: { name: t.name, description: t.description, parameters: t.parameters },
+  }));
+
+  let fullText = '';
   let stepCount = 0;
   const maxSteps = 10;
-  let allSteps: string[] = [];
+  // Track pending tool calls for this iteration
+  let pendingToolCalls: Array<{ id: string; name: string; arguments: Record<string, any> }> = [];
 
   try {
     while (stepCount < maxSteps) {
       stepCount++;
-      fullResponse = '';
+      fullText = '';
+      pendingToolCalls = [];
 
       await callAIStream(
         planMessages,
         (chunk) => {
-          fullResponse += chunk;
+          fullText += chunk;
         },
-        { tools: tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } })) }
+        {
+          tools: openaiTools,
+          signal: createAISignal(),
+          onToolCalls: (calls) => {
+            pendingToolCalls = calls;
+          },
+        }
       );
 
-      // Check for tool calls in the response
-      const toolBlockMatch = fullResponse.match(/```tool\s*\n([\s\S]*?)\n```/);
-      if (toolBlockMatch) {
-        try {
-          const toolCall = JSON.parse(toolBlockMatch[1]);
-          if (toolCall.tool && toolCall.params) {
-            const tool = tools.find((t) => t.name === toolCall.tool);
-            if (tool) {
-              onStep(`🔧 ${toolCall.tool}: ${Object.values(toolCall.params).join(', ')}`);
-              const result = await tool.execute(toolCall.params);
-              onStep(`✅ 完成: ${result.substring(0, 80)}...`);
+      // Execute tool calls using native OpenAI format
+      if (pendingToolCalls.length > 0) {
+        // Add assistant message with tool_calls
+        planMessages.push({
+          role: 'assistant',
+          content: fullText || null as any,
+          tool_calls: pendingToolCalls.map((tc) => ({
+            id: tc.id,
+            type: 'function',
+            function: { name: tc.name, arguments: JSON.stringify(tc.arguments) },
+          })),
+        });
 
-              // Add result to conversation and continue
-              planMessages.push(
-                { role: 'assistant', content: fullResponse },
-                { role: 'user', content: `Tool result for ${toolCall.tool}:\n${result}\n\nContinue to the next step or provide the final summary.` }
-              );
-              continue;
-            }
+        // Execute each tool and add results
+        for (const tc of pendingToolCalls) {
+          const tool = tools.find((t) => t.name === tc.name);
+          onStep(`🔧 ${tc.name}(${Object.values(tc.arguments).join(', ')})`);
+
+          let result: string;
+          if (tool) {
+            result = await tool.execute(tc.arguments);
+          } else {
+            result = `Error: Unknown tool "${tc.name}"`;
           }
-        } catch {
-          // Not a valid tool call, treat as final response
+
+          onStep(`✅ ${result.substring(0, 80)}`);
+          planMessages.push({
+            role: 'tool',
+            tool_call_id: tc.id,
+            name: tc.name,
+            content: result,
+          });
         }
+        continue; // Continue the loop for next AI step
       }
 
-      // No tool call found or error parsing — treat as final response
+      // No tool calls — AI is done, text is the final response
       break;
     }
   } catch (err: any) {
+    if (err.name === 'AbortError') {
+      onDone('Agent 已取消。');
+      return;
+    }
     onDone(`Agent 执行出错: ${err.message}`);
     return;
   }
@@ -259,5 +293,5 @@ export async function runAgent(
     return;
   }
 
-  onDone(fullResponse || '任务已完成。');
+  onDone(fullText || '任务已完成。');
 }

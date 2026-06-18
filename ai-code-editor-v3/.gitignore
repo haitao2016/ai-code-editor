@@ -1,0 +1,55 @@
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Build outputs
+dist/
+dist-electron/
+.out/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# WorkBuddy
+.workbuddy/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Temp files
+*.tmp
+*.temp
+~$*
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Electron build
+release/
+*.exe
+*.dmg
+*.AppImage
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Misc
+%TEMP%*/
+*.bak
+*.backup

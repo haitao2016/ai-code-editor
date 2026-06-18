@@ -22,7 +22,7 @@ let termTabs: TermTab[] = [];
 let activeTabId = '';
 
 function getElectronAPI(): any {
-  return (window as any).electronAPI;
+  return window.electronAPI;
 }
 
 // ─── ANSI Color Map ────────────────────────────────────────
@@ -189,18 +189,18 @@ function renderTermTabBar(): void {
       return `
       <div class="term-tab${active}" onclick="window._switchTermTab?.('${tab.id}')" title="${tab.title}">
         <span>${shellIcon} ${tab.title}</span>
-        <button class="term-tab-close" onclick="event.stopPropagation(); window._closeTermTab?.('${tab.id}')" title="关闭终端">✕</button>
+        <button class="term-tab-close" onclick="event.stopPropagation(); window._closeTermTab?.('${tab.id}')" title=i18n.t('terminal.关闭终端')>✕</button>
       </div>`;
     })
     .join('');
 
   // Add new tab button
-  bar.innerHTML += `<button onclick="window._newTermTab?.()" title="新建终端" class="term-tab-new">+</button>`;
+  bar.innerHTML += `<button onclick="window._newTermTab?.()" title=i18n.t('terminal.新建终端') class="term-tab-new">+</button>`;
 
   // Global handlers
-  (window as any)._switchTermTab = switchTermTab;
-  (window as any)._closeTermTab = closeTermTab;
-  (window as any)._newTermTab = () => {
+  window._switchTermTab = switchTermTab;
+  window._closeTermTab = closeTermTab;
+  window._newTermTab = () => {
     const count = termTabs.length + 1;
     addTerminalTab(`Terminal ${count}`);
     renderTermTabBar();

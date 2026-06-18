@@ -62,6 +62,23 @@ export interface ElectronAPI {
     };
   };
   terminal: TerminalAPI;
+  lsp: {
+    start(config: any): Promise<string>;
+    write(channel: string, data: string): void;
+    close(channel: string): void;
+    shutdownAll(): void;
+    onData(channel: string, callback: (data: string) => void): () => void;
+    onError(channel: string, callback: (msg: string) => void): () => void;
+    onClosed(channel: string, callback: (code: number) => void): () => void;
+  };
+  dap: {
+    start(config: any, sessionId: string): void;
+    write(sessionId: string, data: string): void;
+    stop(sessionId: string): void;
+    onData(sessionId: string, callback: (data: string) => void): () => void;
+    onError(sessionId: string, callback: (msg: string) => void): () => void;
+    onClose(sessionId: string, callback: (code: number) => void): () => void;
+  };
   openExternal(url: string): Promise<void>;
   getAppInfo(): Promise<AppInfo>;
   platform: string;

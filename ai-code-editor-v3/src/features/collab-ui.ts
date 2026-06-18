@@ -109,7 +109,7 @@ function renderCollabContent(): void {
     content.innerHTML = `
       <div style="margin-bottom:20px;">
         <div style="font-size:13px;color:var(--text-secondary);margin-bottom:4px;">你的名称</div>
-        <input type="text" id="collabUsername" value="${state.username}" placeholder="输入你的名称"
+        <input type="text" id="collabUsername" value="${state.username}" placeholder=i18n.t('common.输入你的名称')
           style="width:100%;background:var(--bg-primary);border:1px solid var(--border-color);color:var(--text-primary);padding:8px 12px;border-radius:6px;font-size:13px;box-sizing:border-box;">
       </div>
 

@@ -311,11 +311,33 @@ async function loadChatSessions(): Promise<ChatSession[]> {
   }
 }
 
-// ─── Token counting utility ───────────────────────────────
+// ─── Token counting utility (tiktoken parity via gpt-tokenizer) ──
+import { encode, decode, isWithinTokenLimit } from 'gpt-tokenizer';
+
+/** Precise token count using GPT-4/3.5 cl100k_base tokenizer */
+export function countTokens(text: string): number {
+  if (!text || text.length === 0) return 0;
+  return encode(text).length;
+}
+
+/** Estimate tokens (fast path with character approximation + verification).
+ *  Uses gpt-tokenizer for accuracy, falling back to char/3 for very large texts. */
 export function estimateTokens(text: string): number {
-  // Rough estimation: 1 token ≈ 4 characters for English, 1.5 for Chinese
-  // Mix: ~3 chars per token
-  return Math.ceil(text.length / 3);
+  if (!text) return 0;
+  try {
+    return countTokens(text);
+  } catch {
+    return Math.ceil(text.length / 3);
+  }
+}
+
+/** Check if text fits within a token budget */
+export function checkTokenLimit(text: string, maxTokens: number): boolean {
+  try {
+    return isWithinTokenLimit(text, maxTokens);
+  } catch {
+    return text.length / 3 <= maxTokens;
+  }
 }
 
 export function trimContextWindow(messages: ChatMessage[], maxTokens: number = 8000): ChatMessage[] {
@@ -425,6 +447,8 @@ export const useModelStore = create<ModelState>()(
         { id: 'gpt4omini', name: 'GPT-4o Mini', provider: 'openai', endpoint: '', model: 'gpt-4o-mini', capabilities: [{ type: 'chat', enabled: true }, { type: 'code', enabled: true }] },
         { id: 'claude', name: 'Claude 3.5 Sonnet', provider: 'anthropic', endpoint: '', model: 'claude-3-5-sonnet', capabilities: [{ type: 'chat', enabled: true }, { type: 'vision', enabled: true }, { type: 'tool_calls', enabled: true }, { type: 'code', enabled: true }] },
         { id: 'deepseek', name: 'DeepSeek Chat', provider: 'deepseek', endpoint: '', model: 'deepseek-chat', capabilities: [{ type: 'chat', enabled: true }, { type: 'code', enabled: true }] },
+        // Local models — Ollama (auto-detected, no API key needed)
+        { id: 'ollama-auto', name: 'Ollama (本地)', provider: 'ollama', endpoint: 'http://localhost:11434/v1', model: '', local: true, requireApiKey: false, capabilities: [{ type: 'chat', enabled: true }, { type: 'code', enabled: true }] },
       ],
       activeModelId: 'gpt4o',
       setModels: (models) => set({ models }),

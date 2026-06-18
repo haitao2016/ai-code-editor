@@ -2,7 +2,18 @@
 // 实时预览 + Linter — TypeScript 版本
 // ============================================================
 import { useFilesStore, useLinterStore, useEditorStore } from '../core/stores';
+import { getEditor } from '../core/editor';
+import { bus } from '../core/event-bus';
 import type { LinterProblem } from '../types';
+import { i18n, t } from '../core/i18n';
+
+declare global {
+  interface Window {
+    _refreshPreview?: () => void;
+    _closePreview?: () => void;
+    _gotoProblem?: (line: number, column: number) => void;
+  }
+}
 
 let previewFrame: HTMLIFrameElement | null = null;
 
@@ -28,8 +39,8 @@ export function togglePreviewPanel(): void {
     panel.remove();
     previewFrame = null;
   }
-  (window as any)._refreshPreview = refreshPreview;
-  (window as any)._closePreview = togglePreviewPanel;
+  window._refreshPreview = refreshPreview;
+  window._closePreview = togglePreviewPanel;
 }
 
 export function refreshPreview(): void {
@@ -112,12 +123,12 @@ function updateStatusBar(problems: LinterProblem[]): void {
   const el = document.getElementById('statusErrors');
   if (el) {
     if (errors + warnings === 0) {
-      el.textContent = '✓ 0 问题';
+      el.textContent = i18n.t('problems.zero');
     } else {
       el.textContent = `⚠ ${errors} 错误 ${warnings} 警告`;
     }
     el.style.cursor = 'pointer';
-    el.title = '点击查看问题列表';
+    el.title = i18n.t('preview.点击查看问题列表');
   }
 }
 
@@ -155,8 +166,8 @@ export function toggleProblemPanel(): void {
   `;
   document.body.appendChild(panel);
 
-  (window as any)._gotoProblem = (line: number, column: number) => {
-    const editor = (window as any).__monacoEditor;
+  window._gotoProblem = (line: number, column: number) => {
+    const editor = getEditor();
     if (editor) {
       editor.revealLine(line);
       editor.setPosition({ lineNumber: line, column });

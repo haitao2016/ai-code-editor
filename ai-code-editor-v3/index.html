@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI Code Editor v3.0 — Powered by WorkBuddy</title>
+<title>AI Code Editor v4.0 — Powered by WorkBuddy</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%236366f1'/><text x='16' y='22' text-anchor='middle' fill='white' font-size='18' font-family='monospace'>&lt;/&gt;</text></svg>">
 <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
 </head>
@@ -13,12 +13,12 @@
 <div class="titlebar">
   <div class="logo">
     <svg viewBox="0 0 24 24" fill="none"><rect width="24" height="24" rx="5" fill="#6366f1"/><text x="12" y="17" text-anchor="middle" fill="white" font-size="13" font-family="monospace" font-weight="bold">&lt;/&gt;</text></svg>
-    AI Code Editor <span style="font-size:10px;opacity:0.6;font-weight:400">v3.0</span>
+    AI Code Editor <span style="font-size:10px;opacity:0.6;font-weight:400">v4.0</span>
   </div>
   <div class="file-name" id="titleFileName">AI Code Editor</div>
   <div class="actions">
-    <button title="最大化" id="btnFullscreen">□</button>
-    <button class="close" title="关闭">✕</button>
+    <button title="最大化" data-i18n-title="common.最大化"  id="btnFullscreen">□</button>
+    <button class="close" title="关闭" data-i18n-title="common.关闭" >✕</button>
   </div>
 </div>
 
@@ -26,27 +26,27 @@
 <div class="workspace" id="workspace">
 <div class="main-container">
   <div class="activity-bar">
-    <button class="activity-btn active" title="资源管理器" id="btnExplorer">📁</button>
-    <button class="activity-btn" title="Git 版本控制" id="btnGit">⎇</button>
-    <button class="activity-btn" title="全局搜索" id="btnSearch">🔍</button>
-    <button class="activity-btn" title="符号大纲" id="btnOutline">📋</button>
-    <button class="activity-btn" title="差异对比" id="btnDiff">📊</button>
+    <button class="activity-btn active" title="资源管理器" data-i18n-title="git.资源管理器"  id="btnExplorer">📁</button>
+    <button class="activity-btn" title="Git 版本控制" data-i18n-title="html.Git版"  id="btnGit">⎇</button>
+    <button class="activity-btn" title="全局搜索" data-i18n-title="common.全局搜索"  id="btnSearch">🔍</button>
+    <button class="activity-btn" title="符号大纲" data-i18n-title="common.符号大纲"  id="btnOutline">📋</button>
+    <button class="activity-btn" title="差异对比" data-i18n-title="common.差异对比"  id="btnDiff">📊</button>
     <div class="spacer"></div>
-    <button class="activity-btn" title="AI 助手" id="btnAI">🤖</button>
-    <button class="activity-btn" title="终端" id="btnTerminal">&gt;_</button>
-    <button class="activity-btn" title="预览" id="btnPreview">▶</button>
-    <button class="activity-btn" title="插件" id="btnPlugins">🔌</button>
-    <button class="activity-btn" title="协作" id="btnCollab">🌐</button>
-    <button class="activity-btn" title="设置" id="btnSettings">⚙</button>
+    <button class="activity-btn" title="AI 助手" data-i18n-title="chat.title"  id="btnAI">🤖</button>
+    <button class="activity-btn" title="终端" data-i18n-title="common.终端"  id="btnTerminal">&gt;_</button>
+    <button class="activity-btn" title="预览" data-i18n-title="accessibility.预览"  id="btnPreview">▶</button>
+    <button class="activity-btn" title="插件" data-i18n-title="settings.plugins"  id="btnPlugins">🔌</button>
+    <button class="activity-btn" title="协作" data-i18n-title="collab.title"  id="btnCollab">🌐</button>
+    <button class="activity-btn" title="设置" data-i18n-title="common.设置"  id="btnSettings">⚙</button>
   </div>
 
   <div class="sidebar" id="sidebar">
     <div class="sidebar-header">
-      <span>资源管理器</span>
+      <span data-i18n="git.资源管理器">资源管理器</span>
       <div class="actions" id="fileTreeActions">
-        <button title="新建文件" id="btnNewFile">+</button>
-        <button title="新建文件夹" id="btnNewFolder">📁+</button>
-        <button title="刷新" id="btnRefresh">↻</button>
+        <button title="新建文件" data-i18n-title="common.新建文件"  id="btnNewFile">+</button>
+        <button title="新建文件夹" data-i18n-title="accessibility.新建文件夹"  id="btnNewFolder">📁+</button>
+        <button title="刷新" data-i18n-title="common.refresh"  id="btnRefresh">↻</button>
       </div>
     </div>
     <div class="file-tree" id="fileTree"></div>
@@ -63,15 +63,15 @@
         <div class="logo-large">
           <svg viewBox="0 0 80 80" fill="none"><rect width="80" height="80" rx="16" fill="#6366f1" opacity="0.5"/><text x="40" y="55" text-anchor="middle" fill="white" font-size="44" font-family="monospace" font-weight="bold">&lt;/&gt;</text></svg>
         </div>
-        <h2>AI Code Editor v3.0</h2>
-        <p>TypeScript · Zustand · Vite · 多模型 · 模块化架构</p>
+        <h2>AI Code Editor v4.0</h2>
+        <p data-i18n="emptyState.techStack">TypeScript · Zustand · Vite · 多模型 · 模块化架构 · Split View</p>
         <div class="shortcuts">
-          <div class="shortcut"><kbd>Ctrl+P</kbd><span>命令面板</span></div>
-          <div class="shortcut"><kbd>Ctrl+N</kbd><span>新建文件</span></div>
-          <div class="shortcut"><kbd>Ctrl+S</kbd><span>保存</span></div>
-          <div class="shortcut"><kbd>Ctrl+`</kbd><span>AI 助手</span></div>
-          <div class="shortcut"><kbd>Ctrl+Shift+F</kbd><span>全局搜索</span></div>
-          <div class="shortcut"><kbd>Ctrl+Shift+O</kbd><span>符号大纲</span></div>
+          <div class="shortcut" data-i18n="common.命令面板"><kbd data-i18n="common.命令面板">Ctrl+P</kbd><span data-i18n="common.命令面板">命令面板</span></div>
+          <div class="shortcut" data-i18n="common.新建文件"><kbd data-i18n="common.新建文件">Ctrl+N</kbd><span data-i18n="common.新建文件">新建文件</span></div>
+          <div class="shortcut" data-i18n="common.save"><kbd data-i18n="common.save">Ctrl+S</kbd><span data-i18n="common.save">保存</span></div>
+          <div class="shortcut" data-i18n="chat.title"><kbd data-i18n="chat.title">Ctrl+`</kbd><span data-i18n="chat.title">AI 助手</span></div>
+          <div class="shortcut" data-i18n="common.全局搜索"><kbd data-i18n="common.全局搜索">Ctrl+Shift+F</kbd><span data-i18n="common.全局搜索">全局搜索</span></div>
+          <div class="shortcut" data-i18n="common.符号大纲"><kbd data-i18n="common.符号大纲">Ctrl+Shift+O</kbd><span data-i18n="common.符号大纲">符号大纲</span></div>
         </div>
       </div>
     </div>
@@ -81,24 +81,29 @@
 
   <div class="chat-panel" id="chatPanel">
     <div class="chat-header">
-      <div class="title"><span class="dot" id="aiStatusDot"></span> AI 助手 <span class="status warn" id="aiStatusLabel">未配置</span></div>
+      <div class="title" data-i18n="chat.title"><span class="dot" id="aiStatusDot" data-i18n="chat.title"></span> AI 助手 <span class="status warn" id="aiStatusLabel" data-i18n="chat.title">未配置</span></div>
       <div class="actions">
-        <button title="清空对话" id="btnClearChat">🗑</button>
-        <button title="关闭面板" id="btnCloseChat">✕</button>
+        <button title="清空对话" data-i18n-title="accessibility.清空对话"  id="btnClearChat">🗑</button>
+        <button title="关闭面板" data-i18n-title="html.关闭面板"  id="btnCloseChat">✕</button>
       </div>
     </div>
     <div class="chat-messages" id="chatMessages"></div>
     <div class="chat-input-area">
       <div class="chat-input-wrapper">
-        <textarea id="chatInput" rows="1" placeholder="输入问题... (Enter 发送, Shift+Enter 换行, /agent 启动Agent, /composer 启动Composer)"></textarea>
-        <button class="send-btn" id="btnSend" title="发送">➤</button>
+        <textarea id="chatInput" rows="1" placeholder="输入问题... (Enter 发送, Shift+Enter 换行, /agent 启动Agent, /composer 启动Composer)" data-i18n-placeholder="html.输入问题" ></textarea>
+        <button class="send-btn" id="btnSend" title="发送" data-i18n-title="chat.send" >➤</button>
+        <button class="send-btn" id="btnStop" title="停止生成" data-i18n-title="accessibility.停止生成"  style="display:none;background:var(--error);">■</button>
+      </div>
+      <div class="chat-context" id="chatContext" style="display:none;">
+        <span class="context-label" data-i18n="chat.contextLabel">上下文:</span>
+        <div class="context-files" id="contextFiles"></div>
       </div>
       <div class="chat-hint">
-        <button data-hint="解释这段代码的作用">解释代码</button>
-        <button data-hint="帮我优化这段代码">优化代码</button>
-        <button data-hint="为这段代码添加注释">添加注释</button>
-        <button data-hint="帮我写一个单元测试">写测试</button>
-        <button data-hint="这段代码有什么问题？">找Bug</button>
+        <button data-hint="解释这段代码的作用" data-i18n="html.解释代码">解释代码</button>
+        <button data-hint="帮我优化这段代码" data-i18n="html.优化代码">优化代码</button>
+        <button data-hint="为这段代码添加注释" data-i18n="html.添加注释">添加注释</button>
+        <button data-hint="帮我写一个单元测试" data-i18n="html.写测试">写测试</button>
+        <button data-hint="这段代码有什么问题？" data-i18n="html.找Bug">找Bug</button>
         <button class="agent-btn">🤖 Agent</button>
         <button class="composer-btn">📝 Composer</button>
       </div>
@@ -110,13 +115,13 @@
 <div class="terminal-panel collapsed" id="terminalPanel">
   <div class="terminal-header">
     <div class="term-tabs">
-      <div class="term-tab active">终端</div>
-      <div class="term-tab">问题</div>
+      <div class="term-tab active" data-i18n="common.终端">终端</div>
+      <div class="term-tab" data-i18n="problems.title">问题</div>
     </div>
     <div class="term-actions">
-      <button title="新建终端" onclick="window._termNew?.()">+</button>
-      <button title="运行活动文件" onclick="window._runFile?.()">▶</button>
-      <button title="关闭终端" onclick="window._toggleTerminal?.()">✕</button>
+      <button title="新建终端" data-i18n-title="terminal.新建终端"  onclick="window._termNew?.()">+</button>
+      <button title="运行活动文件" data-i18n-title="html.运行活动"  onclick="window._runFile?.()">▶</button>
+      <button title="关闭终端" data-i18n-title="terminal.关闭终端"  onclick="window._toggleTerminal?.()">✕</button>
     </div>
   </div>
   <div class="terminal-body" id="terminalContainer"></div>
@@ -127,38 +132,81 @@
 <div class="statusbar">
   <div class="left">
     <span class="item" id="statusGit">⎇ main</span>
-    <span class="item" id="statusErrors" title="点击查看问题列表">✓ 0 问题</span>
-    <span class="item" title="切换终端">>_ 终端</span>
+    <span class="item" id="statusErrors" title="点击查看问题列表" data-i18n-title="preview.点击查看问题列表" data-i18n="problems.zero" >✓ 0 问题</span>
+    <span class="item" title="切换终端" data-i18n-title="menu.toggleTerminal" data-i18n="html._终端" >>_ 终端</span>
   </div>
   <div class="right">
     <span class="item" id="statusLang">—</span>
     <span class="item" id="statusEncoding">UTF-8</span>
-    <span class="item" id="statusLnCol">行 1, 列 1</span>
-    <span class="item" id="statusSave">💾 已保存</span>
+    <span class="item" id="statusLnCol" data-i18n="html.行1列1">行 1, 列 1</span>
+    <span class="item" id="statusSave" data-i18n="html.已保存">💾 已保存</span>
   </div>
 </div>
 
 <!-- Settings Modal -->
 <div class="modal-overlay" id="settingsModal">
   <div class="modal">
-    <div class="modal-header"><h3>设置</h3><button id="btnCloseSettings">✕</button></div>
+    <div class="modal-header" data-i18n="common.设置"><h3 data-i18n="common.设置">设置</h3><button id="btnCloseSettings" data-i18n="common.设置">✕</button></div>
     <div class="modal-body">
       <div class="setting-group">
-        <div class="setting-label">模型选择</div>
+        <div class="setting-label" data-i18n="html.模型选择">模型选择</div>
         <div id="modelSelector" class="model-selector"></div>
       </div>
       <div class="setting-group">
-        <div class="setting-label">AI 配置</div>
-        <input type="text" id="settingApiEndpoint" placeholder="API 端点 (如 https://api.openai.com/v1)">
-        <div class="setting-hint">支持 OpenAI 兼容接口</div>
+        <div class="setting-label" data-i18n="settings.ai">AI 配置</div>
+        <input type="text" id="settingApiEndpoint" placeholder="API 端点 (如 https://api.openai.com/v1)" data-i18n-placeholder="html.API端" >
+        <div class="setting-hint" data-i18n="html.支持Op">支持 OpenAI 兼容接口</div>
       </div>
       <div class="setting-group">
         <div class="setting-label">API Key</div>
         <input type="password" id="settingApiKey" placeholder="sk-...">
-        <div class="setting-hint">密钥仅存储在本地浏览器中</div>
+        <div class="setting-hint" data-i18n="html.密钥仅存">密钥仅存储在本地浏览器中</div>
       </div>
+
+      <!-- 本地模型 (Ollama) -->
+      <div class="setting-group" id="ollamaSection">
+        <div class="setting-label" data-i18n="html.本地模型">🦙 本地模型 (Ollama) <span id="ollamaStatus" class="ollama-status unknown" data-i18n="html.本地模型">检测中...</span></div>
+        <div class="setting-hint" data-i18n="html.Olla">Ollama 允许在本地运行开源大模型，无需 API Key</div>
+        <div class="row" style="margin-top:6px; gap:6px">
+          <button class="btn-secondary" id="btnDetectOllama" style="font-size:12px; padding:4px 10px" data-i18n="html.检测Ol">检测 Ollama</button>
+          <button class="btn-secondary" id="btnRefreshOllamaModels" style="font-size:12px; padding:4px 10px" disabled data-i18n="html.刷新模型">刷新模型列表</button>
+        </div>
+        <div id="ollamaModelsList" class="ollama-models-list" style="margin-top:8px; display:none">
+          <div class="setting-label" style="font-size:12px; opacity:0.8" data-i18n="html.已安装的">已安装的本地模型</div>
+          <div id="ollamaModelsContainer" class="ollama-models-container"></div>
+        </div>
+        <div id="ollamaPullSection" style="margin-top:8px; display:none">
+          <div class="setting-label" style="font-size:12px; opacity:0.8" data-i18n="html.拉取新模">拉取新模型</div>
+          <div class="row" style="gap:6px">
+            <input type="text" id="ollamaPullInput" placeholder="模型名，如 qwen3:1.7b" data-i18n-placeholder="html.模型名如"  style="flex:1; font-size:12px; padding:4px 8px">
+            <button class="btn-primary" id="btnPullOllamaModel" style="font-size:12px; padding:4px 10px" data-i18n="git.pull">拉取</button>
+          </div>
+          <div id="ollamaPullProgress" style="margin-top:4px; font-size:11px; color:#888; display:none"></div>
+          <details style="margin-top:6px; font-size:11px; color:#888">
+            <summary data-i18n="html.推荐模型">推荐模型</summary>
+            <div id="ollamaRecommended" class="ollama-recommended"></div>
+          </details>
+        </div>
+      </div>
+
+      <!-- RAG 语义搜索 -->
+      <div class="setting-group" id="ragSection">
+        <div class="setting-label" data-i18n="html.语义搜索">🔍 RAG 语义搜索 <span id="ragStatus" class="ollama-status unknown">未索引</span></div>
+        <div class="setting-hint" data-i18n="html.RAGDesc">对当前项目建立向量索引，AI 聊天时将自动搜索相关代码片段</div>
+        <div class="row" style="margin-top:6px; gap:6px">
+          <button class="btn-secondary" id="btnBuildRAG" style="font-size:12px; padding:4px 10px" data-i18n="html.建立索引">建立索引</button>
+          <button class="btn-secondary" id="btnBuildRAGEmbed" style="font-size:12px; padding:4px 10px" data-i18n="html.嵌入索引">Embedding 索引</button>
+          <button class="btn-secondary" id="btnClearRAG" style="font-size:12px; padding:4px 10px" data-i18n="html.清除索引">清除</button>
+        </div>
+        <div id="ragProgress" style="margin-top:4px; font-size:11px; color:#888; display:none"></div>
+        <div id="ragDetails" style="margin-top:6px; font-size:11px; color:#888; display:none">
+          <span data-i18n="html.索引块数">索引块数</span>: <span id="ragChunkCount">0</span> |
+          <span data-i18n="html.索引模式">模式</span>: <span id="ragMode">TF-IDF</span>
+        </div>
+      </div>
+
       <div class="setting-group">
-        <div class="setting-label">模型</div>
+        <div class="setting-label" data-i18n="settings.model">模型</div>
         <div class="row">
           <select id="settingModel">
             <option value="gpt-4o">GPT-4o</option>
@@ -166,51 +214,113 @@
             <option value="gpt-4-turbo">GPT-4 Turbo</option>
             <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
             <option value="deepseek-chat">DeepSeek Chat</option>
-            <option value="qwen-plus">通义千问 Plus</option>
-            <option value="custom">自定义...</option>
+            <option value="qwen-plus" data-i18n="html.通义千问">通义千问 Plus</option>
+            <option value="custom" data-i18n="html.自定义">自定义...</option>
           </select>
-          <input type="text" id="settingCustomModel" placeholder="自定义模型名" style="display:none">
+          <input type="text" id="settingCustomModel" placeholder="自定义模型名" data-i18n-placeholder="html.自定义模"  style="display:none">
         </div>
       </div>
       <div class="setting-group">
-        <div class="setting-label">编辑器主题</div>
+        <div class="setting-label" data-i18n="html.编辑器主">编辑器主题</div>
         <select id="settingTheme">
-          <option value="vs-dark">暗色</option>
-          <option value="vs">亮色</option>
-          <option value="hc-black">高对比</option>
+          <option value="vs-dark" data-i18n="html.暗色">暗色</option>
+          <option value="vs" data-i18n="html.亮色">亮色</option>
+          <option value="hc-black" data-i18n="html.高对比">高对比</option>
         </select>
       </div>
       <div class="setting-group">
-        <div class="setting-label">字体大小: <span id="fontSizeLabel">14px</span></div>
+        <div class="setting-label" data-i18n="html.字体大小">字体大小: <span id="fontSizeLabel" data-i18n="html.字体大小">14px</span></div>
         <input type="range" min="11" max="24" value="14" id="settingFontSize">
       </div>
       <div class="setting-group">
-        <div class="setting-label">Tab 大小</div>
+        <div class="setting-label" data-i18n="html.Tab大">Tab 大小</div>
         <select id="settingTabSize">
-          <option value="2">2 空格</option>
-          <option value="4" selected>4 空格</option>
-          <option value="8">8 空格</option>
+          <option value="2" data-i18n="html.2空格">2 空格</option>
+          <option value="4" selected data-i18n="html.4空格">4 空格</option>
+          <option value="8" data-i18n="html.8空格">8 空格</option>
         </select>
       </div>
       <div class="setting-group">
-        <div class="setting-label">内联补全</div>
+        <div class="setting-label" data-i18n="html.内联补全">内联补全</div>
         <select id="settingInlineComplete">
-          <option value="enabled" selected>启用</option>
-          <option value="disabled">禁用</option>
+          <option value="enabled" selected data-i18n="common.启用">启用</option>
+          <option value="disabled" data-i18n="html.禁用">禁用</option>
         </select>
+      </div>
+      <div class="setting-group">
+        <div class="setting-label" data-i18n="html.API用">📊 API 用量统计</div>
+        <div class="quota-stats" id="quotaStats">
+          <div class="quota-row" data-i18n="html.今日"><span data-i18n="html.今日">今日</span><span id="quotaToday" data-i18n="html.今日">0 tokens / $0</span></div>
+          <div class="quota-row" data-i18n="html.本周"><span data-i18n="html.本周">本周</span><span id="quotaWeek" data-i18n="html.本周">0 tokens / $0</span></div>
+          <div class="quota-row" data-i18n="html.总计"><span data-i18n="html.总计">总计</span><span id="quotaTotal" data-i18n="html.总计">0 tokens / $0</span></div>
+        </div>
+        <div class="setting-hint" data-i18n="html.API调">API 调用次数及费用估算</div>
+      </div>
+
+      <!-- 协作编辑 -->
+      <div class="setting-group" id="collabSection">
+        <div class="setting-label" data-i18n="html.协作编辑">👥 实时协作编辑</div>
+        <div class="setting-hint" data-i18n="html.CollabDesc">启用 CRDT 实时协作（需要网络连接）</div>
+        <div class="row" style="margin-top:6px; gap:6px; align-items:center">
+          <label style="font-size:12px; display:flex; align-items:center; gap:4px">
+            <input type="checkbox" id="settingCollabEnabled"> 
+            <span data-i18n="html.启用协作">启用协作</span>
+          </label>
+          <input type="text" id="settingCollabUser" placeholder="用户名" data-i18n-placeholder="html.用户名" style="flex:1; font-size:12px; padding:4px 8px">
+        </div>
+        <div id="collabStatus" style="margin-top:4px; font-size:11px; color:#888; display:none">
+          <span data-i18n="html.协作状态">状态</span>: <span id="collabStatusText">未连接</span>
+        </div>
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn-danger" id="btnResetSettings">重置设置</button>
-      <button class="btn-danger" id="btnResetData">清除数据</button>
-      <button class="btn-secondary" id="btnCancelSettings">取消</button>
-      <button class="btn-primary" id="btnSaveSettings">保存</button>
+      <button class="btn-danger" id="btnResetSettings" data-i18n="html.重置设置">重置设置</button>
+      <button class="btn-danger" id="btnResetData" data-i18n="html.清除数据">清除数据</button>
+      <button class="btn-secondary" id="btnCancelSettings" data-i18n="common.cancel">取消</button>
+      <button class="btn-primary" id="btnSaveSettings" data-i18n="common.save">保存</button>
     </div>
   </div>
 </div>
 
 <!-- Context Menu -->
 <div class="context-menu" id="contextMenu"></div>
+
+<!-- Plugin Marketplace Modal -->
+<div class="marketplace-modal" id="marketplaceModal">
+  <div class="marketplace-dialog">
+    <div class="marketplace-header">
+      <h3 data-i18n="html.插件市场">🔌 插件市场</h3>
+      <button id="btnCloseMarketplace" title="关闭" data-i18n-title="common.关闭" >✕</button>
+    </div>
+    <div class="marketplace-search">
+      <input type="text" id="marketplaceSearch" placeholder="搜索插件..." data-i18n-placeholder="html.搜索插件" >
+    </div>
+    <div class="marketplace-categories" id="marketplaceCategories">
+      <button class="active" data-cat="all" data-i18n="html.全部">全部</button>
+      <button data-cat="theme" data-i18n="settings.theme">主题</button>
+      <button data-cat="tool" data-i18n="html.工具">工具</button>
+      <button data-cat="ai" data-i18n="html.AI增强">AI 增强</button>
+      <button data-cat="lang" data-i18n="html.语言支持">语言支持</button>
+      <button data-cat="ui" data-i18n="html.界面">界面</button>
+    </div>
+    <div class="marketplace-body" id="marketplaceBody">
+      <div class="marketplace-list" id="marketplaceList"></div>
+    </div>
+    <div class="marketplace-footer">
+      <span data-i18n="html.共">共 <span id="marketplaceCount" data-i18n="html.共">0</span> 个插件</span>
+      <span data-i18n="marketplace.installed">已安装 <span id="marketplaceInstalled" data-i18n="marketplace.installed">0</span> 个</span>
+    </div>
+  </div>
+</div>
+
+<!-- Undo Timeline Panel -->
+<div class="timeline-panel" id="timelinePanel">
+  <div class="timeline-header">
+    <span data-i18n="html.编辑历史">⏱ 编辑历史</span>
+    <button id="btnCloseTimeline" title="关闭" data-i18n-title="common.关闭" >✕</button>
+  </div>
+  <div class="timeline-body" id="timelineBody"></div>
+</div>
 
 <script type="module" src="/src/main.ts"></script>
 </body>

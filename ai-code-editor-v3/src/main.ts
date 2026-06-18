@@ -1,5 +1,5 @@
 // ============================================================
-// AI Code Editor v3.0 — Main Entry
+// AI Code Editor v4.0 — Main Entry
 // TypeScript + Vite + Zustand + Modular Architecture
 // ============================================================
 import './styles/main.css';
@@ -9,8 +9,8 @@ import { initDefaultFiles, loadAllFiles, saveFile, deleteFile, clearAllFiles, ge
 import { initTerminal, toggleTerminal, runActiveFileInTerminal, injectTermStyles } from './features/terminal';
 import { showGitPanel, showFileTree, gitCommit } from './features/git';
 import { sendChatMessage, toggleChat, clearChat, renderChatMessages, sendHint, applyCodeToEditor } from './features/chat';
-import { callAIStream } from './core/ai';
-import { showSettings, hideSettings, saveSettings, resetSettings, resetAllData } from './features/settings';
+import { bus } from './core/event-bus';
+import { showSettings, hideSettings, saveSettings, resetSettings, resetAllData, initOllamaSettings, initRAGSettings, initCollabSettings } from './features/settings';
 import { togglePreviewPanel, refreshPreview, runLinter, toggleProblemPanel } from './features/preview';
 import { showPluginPanel } from './features/plugins';
 import { showCollabPanel } from './features/collab-ui';
@@ -20,31 +20,167 @@ import { showDiffViewer, toggleDiffViewer } from './features/diff-viewer';
 import { registerSnippets, showSnippetManager } from './features/snippets';
 import { showThemeEditor, showShortcutEditor } from './features/theme-editor';
 import { initPlugins, pluginManager } from './plugins';
+import { LSPManager } from './core/lsp-manager';
+import { setLSPManager, startLSPForFile, notifyLSPChange, notifyLSPClose } from './core/lsp-bridge';
+import { quickDebug, toggleBreakpointAtCursor, stopDebugSession } from './features/debug';
+import { initI18n, createLanguageSwitcher } from './core/i18n';
+import { initAccessibility, setupFocusStyles } from './core/a11y';
+import { registerZenModeShortcut } from './features/zen-mode';
 import type { FileEntry } from './types';
 import type { ElectronAPI } from './types/electron';
 
 function getElectronAPI(): ElectronAPI | undefined {
-  return (window as any).electronAPI;
+  return window.electronAPI;
+}
+
+// ─── HTML Escape (XSS prevention) ──────────────────────────
+function h(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// ─── CSP Meta Tag ──────────────────────────────────────────
+function injectCSP(): void {
+  const meta = document.createElement('meta');
+  meta.httpEquiv = 'Content-Security-Policy';
+  meta.content = [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://unpkg.com https://cdnjs.cloudflare.com https://esm.sh",
+    "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net",
+    "img-src 'self' data: blob: https://*",
+    "connect-src 'self' ws: wss: https://* http://localhost:*",
+    "media-src 'self' data: blob:",
+    "worker-src 'self' blob:",
+  ].join('; ');
+  document.head.appendChild(meta);
+}
+
+// ─── API Key Encryption (PBKDF2-derived, no raw key in localStorage) ──
+const ENC_ALGO = { name: 'AES-GCM', length: 256 };
+const ENC_SALT_KEY = 'ai-code-editor-salt';
+const PBKDF2_ITER = 200000;
+
+// Build a stable device fingerprint for key derivation
+function getDeviceFingerprint(): string {
+  const parts = [
+    navigator.hardwareConcurrency || 4,
+    navigator.language,
+    navigator.platform,
+    screen.colorDepth,
+    screen.width,
+    screen.height,
+    navigator.maxTouchPoints || 0,
+  ];
+  return parts.join('|');
+}
+
+async function deriveEncKey(): Promise<CryptoKey> {
+  let saltHex = localStorage.getItem(ENC_SALT_KEY);
+  let salt: Uint8Array;
+
+  if (saltHex) {
+    salt = Uint8Array.from(atob(saltHex), (c) => c.charCodeAt(0));
+  } else {
+    salt = crypto.getRandomValues(new Uint8Array(32));
+    localStorage.setItem(ENC_SALT_KEY, btoa(String.fromCharCode(...salt)));
+  }
+
+  const fingerprint = new TextEncoder().encode(getDeviceFingerprint());
+  const baseKey = await crypto.subtle.importKey('raw', fingerprint, 'PBKDF2', false, ['deriveKey']);
+
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt, iterations: PBKDF2_ITER, hash: 'SHA-256' },
+    baseKey,
+    ENC_ALGO,
+    false, // non-exportable: derived key lives only in memory
+    ['encrypt', 'decrypt'],
+  );
+}
+
+export async function encryptAPIKey(plaintext: string): Promise<string> {
+  if (!plaintext) return '';
+  try {
+    const key = await deriveEncKey();
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encoded = new TextEncoder().encode(plaintext);
+    const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded);
+    const combined = new Uint8Array(iv.length + encrypted.byteLength);
+    combined.set(iv);
+    combined.set(new Uint8Array(encrypted), iv.length);
+    return btoa(String.fromCharCode(...combined));
+  } catch { return ''; }
+}
+
+export async function decryptAPIKey(ciphertext: string): Promise<string> {
+  if (!ciphertext) return '';
+  try {
+    const key = await deriveEncKey();
+    const combined = Uint8Array.from(atob(ciphertext), (c) => c.charCodeAt(0));
+    const iv = combined.slice(0, 12);
+    const data = combined.slice(12);
+    const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, data);
+    return new TextDecoder().decode(decrypted);
+  } catch { return ''; }
 }
 
 // ─── Initialize ────────────────────────────────────────────
 async function init(): Promise<void> {
+  injectCSP();
+
+  // Startup performance: show skeleton screen
+  const { showSkeletonScreen, hideSkeletonScreen, startPerfMeasure, endPerfMeasure, logPerfMetrics } = await import('./core/startup-perf');
+  showSkeletonScreen();
+  startPerfMeasure('total-init');
+
   // Load files from IndexedDB
+  startPerfMeasure('file-load');
   const fileEntries = await initDefaultFiles();
   useFilesStore.getState().loadFiles(fileEntries);
+  endPerfMeasure('file-load');
 
   // Init Monaco
+  startPerfMeasure('monaco-init');
   const container = document.getElementById('editorContainer');
   if (container) {
     await initMonaco(container);
-    (window as any).__monacoEditor = getEditor();
+    window.__monacoEditor = getEditor();
   }
+  endPerfMeasure('monaco-init');
+
+  // Init LSP Manager
+  const rootPath = window.__workspaceRoot || '/workspace';
+  const isElectron = !!getElectronAPI();
+  const lspMgr = new LSPManager(rootPath, isElectron, getElectronAPI());
+  setLSPManager(lspMgr);
+  window.__lspManager = lspMgr;
+
+  // Auto-start LSP for default file
+  const defaultPath = 'src/index.ts';
+  const defaultContent = useFilesStore.getState().files.get(defaultPath)?.content || '';
+  startLSPForFile('typescript', defaultPath, defaultContent).catch(() => {});
+
+  // Init LSP fallback (Monaco built-in TS/JS/CSS/HTML services + diagnostics sync)
+  import('./core/lsp-fallback').then((m) => {
+    m.initLSPFallback();
+  });
+
+  // Init RAG index (background, non-blocking)
+  import('./core/rag').then((m) => {
+    setTimeout(() => m.rebuildRAGIndex(), 1000); // delay to let files settle
+  });
 
   // Init Terminal
   initTerminal();
 
   // Render file tree
   renderFileTree();
+
+  // Show welcome page if no tabs open
+  import('./features/welcome').then((m) => {
+    if (m.shouldShowWelcome()) {
+      m.showWelcomePage();
+    }
+  });
 
   // Render chat
   renderChatMessages();
@@ -55,11 +191,30 @@ async function init(): Promise<void> {
   // Update AI status
   updateAIStatus();
 
+  // Set up encoding status bar
+  import('./features/encoding').then((m) => m.updateStatusBarEncoding());
+
   // Run linter
   runLinter();
 
   // Init plugins
   initPlugins();
+
+  // Init Ollama settings UI
+  initOllamaSettings();
+
+  // Init RAG index (build TF-IDF immediately, try embedding later)
+  import('./core/rag').then((m) => {
+    m.rebuildRAGIndex();
+    const idx = m.getRAGIndex();
+    console.log(`[RAG] Index built: ${idx.size} chunks (TF-IDF mode)`);
+  });
+
+  // Init RAG settings UI
+  initRAGSettings();
+
+  // Init Collab settings UI
+  initCollabSettings();
 
   // Register code snippets
   registerSnippets();
@@ -75,11 +230,18 @@ async function init(): Promise<void> {
     }
   });
 
+  // Load quota records
+  import('./core/quota').then((m) => {
+    m.loadQuotaRecords().then((records) => {
+      m.useQuotaStore.getState().loadRecords(records);
+    });
+  });
+
   // Global handles
-  (window as any)._toggleTerminal = toggleTerminal;
-  (window as any)._runFile = runActiveFileInTerminal;
-  (window as any)._termNew = () => initTerminal();
-  (window as any).__refreshFileTree = renderFileTree;
+  window._toggleTerminal = toggleTerminal;
+  window._runFile = runActiveFileInTerminal;
+  window._termNew = () => initTerminal();
+  window.__refreshFileTree = renderFileTree;
 
   // Electron integration
   if (getElectronAPI()) {
@@ -88,6 +250,35 @@ async function init(): Promise<void> {
 
   // Start file system watching
   initFilesystemWatch();
+
+  // Init auto update
+  import('./features/auto-update').then((m) => m.initAutoUpdate());
+
+  // Init i18n
+  initI18n().then(() => {
+    // Add language switcher to status bar when i18n is ready
+    const statusRight = document.querySelector('.statusbar .right');
+    if (statusRight) {
+      statusRight.appendChild(createLanguageSwitcher());
+    }
+  });
+
+  // Init a11y
+  initAccessibility();
+  setupFocusStyles();
+
+  // Register Zen Mode shortcut
+  registerZenModeShortcut();
+
+  // Register SSH panel in command palette
+  window.__showSSHPanel = () => import('./features/ssh-remote').then((m) => m.showSSHPanel());
+
+  // End perf measurement and hide skeleton
+  endPerfMeasure('total-init');
+  setTimeout(() => {
+    hideSkeletonScreen();
+    if (import.meta.env.DEV) logPerfMetrics();
+  }, 300);
 }
 
 // ─── Event Wiring ──────────────────────────────────────────
@@ -109,6 +300,11 @@ function wireEvents(): void {
 
   // Send button
   document.getElementById('btnSend')?.addEventListener('click', sendChatMessage);
+
+  // Stop button
+  document.getElementById('btnStop')?.addEventListener('click', () => {
+    import('./features/chat').then((m) => m.cancelChatRequest());
+  });
 
   // Hint buttons
   document.querySelectorAll('.chat-hint button[data-hint]').forEach((btn) => {
@@ -186,16 +382,41 @@ function wireEvents(): void {
         case 'p': e.preventDefault(); showCommandPalette(); break;
         case 'n': e.preventDefault(); promptNewFile(); break;
         case 'b': e.preventDefault(); useUIStore.getState().toggleSidebar(); break;
+        case '\\': e.preventDefault();
+          import('./features/split-view').then((m) => m.toggleSplitView('horizontal'));
+          break;
         case '`': e.preventDefault(); toggleChat(); break;
         case ',': e.preventDefault(); showSettings(); break;
-        case 'f': 
+        case 'f':
           if (e.shiftKey) { e.preventDefault(); showSearchPanel(); }
           break;
-        case 'o':
-          if (e.shiftKey) { e.preventDefault(); showOutlinePanel(); }
-          break;
+        case 'o': e.preventDefault(); showOutlinePanel(); break;
         case 'd':
           if (e.shiftKey) { e.preventDefault(); toggleDiffViewer(); }
+          break;
+      }
+    }
+
+    // Debug shortcuts (no Ctrl)
+    if (!e.ctrlKey && !e.metaKey) {
+      switch (e.key) {
+        case 'F5':
+          e.preventDefault();
+          if (e.shiftKey) {
+            stopDebugSession();
+          } else {
+            quickDebug();
+          }
+          break;
+        case 'F9':
+          e.preventDefault();
+          toggleBreakpointAtCursor();
+          break;
+        case 'F':
+          if (e.altKey && e.shiftKey) {
+            e.preventDefault();
+            import('./features/format').then((m) => m.formatDocument());
+          }
           break;
       }
     }
@@ -220,8 +441,19 @@ function wireEvents(): void {
   setupVoiceInput();
 }
 
-// ─── File Tree Rendering ───────────────────────────────────
+// ─── File Tree Rendering (optimized: RAF-batched + cache) ──
+let _treeRAF: ReturnType<typeof requestAnimationFrame> | null = null;
+let _lastTreeHTML: string = '';
+
 function renderFileTree(): void {
+  if (_treeRAF !== null) return; // Already scheduled
+  _treeRAF = requestAnimationFrame(() => {
+    _treeRAF = null;
+    _renderFileTreeNow();
+  });
+}
+
+function _renderFileTreeNow(): void {
   const tree = document.getElementById('fileTree');
   if (!tree) return;
 
@@ -229,30 +461,188 @@ function renderFileTree(): void {
   const entries = Array.from(files.entries()).map(([path, entry]) => ({ path, ...entry }));
   entries.sort((a, b) => a.path.localeCompare(b.path));
 
-  tree.innerHTML = entries
-    .map((entry) => {
-      const icon = getFileIcon(entry.path, false);
-      const active = useEditorStore.getState().activeFile === entry.path ? ' active' : '';
-      return `<div class="tree-item${active}" data-path="${entry.path}" onclick="window._openFile?.('${entry.path}')">
-        <span class="icon">${icon}</span><span class="name">${entry.path}</span>
+  // Build folder tree structure
+  const root: Record<string, any> = { __children: [] };
+
+  for (const entry of entries) {
+    const parts = entry.path.split('/');
+    let current = root;
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      const isFile = i === parts.length - 1;
+      if (isFile) {
+        current.__children.push({ type: 'file', name: part, path: entry.path, icon: getFileIcon(entry.path, false) });
+      } else {
+        if (!current[part]) {
+          current[part] = { __children: [], __open: true };
+        }
+        current = current[part];
+      }
+    }
+  }
+
+  function renderNode(node: any, depth: number): string {
+    let html = '';
+
+    // Render subdirectories
+    const dirNames = Object.keys(node).filter((k) => k !== '__children' && k !== '__open');
+    for (const dirName of dirNames) {
+      const dir = node[dirName];
+      const indent = depth * 16;
+      const open = dir.__open !== false;
+      html += `<div class="tree-item folder" style="padding-left:${indent}px" data-folder="${dirName}" data-depth="${depth}">
+        <span class="icon">${open ? '📂' : '📁'}</span><span class="name">${h(dirName)}</span>
       </div>`;
-    })
-    .join('');
+      if (open) {
+        html += renderNode(dir, depth + 1);
+      }
+    }
 
-  // Context menu on file tree
-  tree.addEventListener('contextmenu', (e) => {
-    e.preventDefault();
-    showContextMenu(e.clientX, e.clientY);
-  });
+    // Render files
+    for (const file of node.__children) {
+      const indent = depth * 16;
+      const active = useEditorStore.getState().activeFile === file.path ? ' active' : '';
+      html += `<div class="tree-item file${active}" style="padding-left:${indent}px" data-path="${h(file.path)}" data-type="file">
+        <span class="icon">${file.icon}</span><span class="name">${h(file.name)}</span>
+      </div>`;
+    }
 
-  (window as any)._openFile = (path: string) => {
+    return html;
+  }
+
+  const newHTML = renderNode(root, 0);
+  if (newHTML !== _lastTreeHTML) {
+    _lastTreeHTML = newHTML;
+    tree.innerHTML = newHTML;
+  }
+
+  // Delegate clicks — avoids XSS via inline onclick
+  tree.onclick = (e) => {
+    const target = (e.target as HTMLElement).closest('[data-path]') as HTMLElement;
+    if (!target) {
+      // Check folder toggle
+      const folder = (e.target as HTMLElement).closest('[data-folder]') as HTMLElement;
+      if (folder) {
+        const dirName = folder.dataset.folder || '';
+        const depth = parseInt(folder.dataset.depth || '0');
+        // Toggle open state by rerendering
+        toggleFolder(dirName, depth);
+        return;
+      }
+      return;
+    }
+    const path = target.dataset.path || '';
     const entry = useFilesStore.getState().files.get(path);
     if (entry) {
       openFileTab(path, entry.content);
+      import('./features/welcome').then((m) => m.addRecentFile(path));
       renderTabs();
       renderFileTree();
     }
   };
+
+  // Context menu
+  tree.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    showContextMenu(e.clientX, e.clientY);
+  });
+}
+
+function toggleFolder(dirName: string, depth: number): void {
+  // Simple toggle — just re-render the whole tree with the folder toggled state
+  // For now, use a Set to track closed folders
+  if (!window.__closedFolders) {
+    window.__closedFolders = new Set<string>();
+  }
+  const closed: Set<string> = window.__closedFolders;
+  const key = `${String(depth)}:${dirName}`;
+  if (closed.has(key)) {
+    closed.delete(key);
+  } else {
+    closed.add(key);
+  }
+  renderFileTreeWithState(closed);
+}
+
+function renderFileTreeWithState(closed: Set<string>): void {
+  const tree = document.getElementById('fileTree');
+  if (!tree) return;
+
+  const files = useFilesStore.getState().files;
+  const entries = Array.from(files.entries()).map(([path, entry]) => ({ path, ...entry }));
+  entries.sort((a, b) => a.path.localeCompare(b.path));
+
+  const root: Record<string, any> = { __children: [] };
+  for (const entry of entries) {
+    const parts = entry.path.split('/');
+    let current = root;
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      const isFile = i === parts.length - 1;
+      if (isFile) {
+        current.__children.push({ type: 'file', name: part, path: entry.path, icon: getFileIcon(entry.path, false) });
+      } else {
+        if (!current[part]) {
+          const key = `${String(i + 1)}:${part}`;
+          current[part] = { __children: [], __open: !closed.has(key) };
+        }
+        current = current[part];
+      }
+    }
+  }
+
+  function renderNode(node: any, depth: number): string {
+    let html = '';
+    const dirNames = Object.keys(node).filter((k) => k !== '__children' && k !== '__open');
+    for (const dirName of dirNames) {
+      const dir = node[dirName];
+      const indent = depth * 16;
+      const open = dir.__open !== false;
+      html += `<div class="tree-item folder" style="padding-left:${indent}px" data-folder="${h(dirName)}" data-depth="${depth}">
+        <span class="icon">${open ? '📂' : '📁'}</span><span class="name">${h(dirName)}</span>
+      </div>`;
+      if (open) html += renderNode(dir, depth + 1);
+    }
+    for (const file of node.__children) {
+      const indent = depth * 16;
+      const active = useEditorStore.getState().activeFile === file.path ? ' active' : '';
+      html += `<div class="tree-item file${active}" style="padding-left:${indent}px" data-path="${h(file.path)}" data-type="file">
+        <span class="icon">${file.icon}</span><span class="name">${h(file.name)}</span>
+      </div>`;
+    }
+    return html;
+  }
+
+  const newHTML = renderNode(root, 0);
+  if (newHTML !== _lastTreeHTML) {
+    _lastTreeHTML = newHTML;
+    tree.innerHTML = newHTML;
+  }
+  tree.onclick = (e) => {
+    const target = (e.target as HTMLElement).closest('[data-path]') as HTMLElement;
+    if (!target) {
+      const folder = (e.target as HTMLElement).closest('[data-folder]') as HTMLElement;
+      if (folder) {
+        const dirName = folder.dataset.folder || '';
+        const depth = parseInt(folder.dataset.depth || '0');
+        toggleFolder(dirName, depth);
+        return;
+      }
+      return;
+    }
+    const path = target.dataset.path || '';
+    const entry = useFilesStore.getState().files.get(path);
+    if (entry) {
+      openFileTab(path, entry.content);
+      import('./features/welcome').then((m) => m.addRecentFile(path));
+      renderTabs();
+      renderFileTree();
+    }
+  };
+  tree.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    showContextMenu(e.clientX, e.clientY);
+  });
 }
 
 function renderTabs(): void {
@@ -269,10 +659,11 @@ function renderTabs(): void {
       const isActive = path === active;
       const isDirty = dirty.has(path);
       const icon = getFileIcon(path, false);
-      return `<div class="tab${isActive ? ' active' : ''}${isDirty ? ' dirty' : ''}" onclick="window._openFile?.('${path}')">
+      const name = path.split('/').pop() || path;
+      return `<div class="tab${isActive ? ' active' : ''}${isDirty ? ' dirty' : ''}" data-tab="${h(path)}">
         <span class="tab-icon">${icon}</span>
-        <span class="tab-name">${path}</span>
-        <span class="tab-close" onclick="event.stopPropagation(); window._closeTab?.('${path}')">✕</span>
+        <span class="tab-label">${h(name)}</span>
+        <span class="tab-close" data-close="${h(path)}">×</span>
       </div>`;
     })
     .join('');
@@ -282,13 +673,31 @@ function renderTabs(): void {
     if (empty) empty.style.display = 'none';
   }
 
-  (window as any)._closeTab = (path: string) => {
-    useEditorStore.getState().closeTab(path);
-    renderTabs();
-    renderFileTree();
-    if (!useEditorStore.getState().activeFile) {
-      const empty = document.getElementById('emptyState');
-      if (empty) empty.style.display = 'flex';
+  // Delegate tab clicks
+  bar.onclick = (e) => {
+    const closeBtn = (e.target as HTMLElement).closest('[data-close]') as HTMLElement;
+    if (closeBtn) {
+      e.stopPropagation();
+      const closePath = closeBtn.dataset.close || '';
+      useEditorStore.getState().closeTab(closePath);
+      renderTabs();
+      renderFileTree();
+      if (!useEditorStore.getState().activeFile) {
+        const empty = document.getElementById('emptyState');
+        if (empty) empty.style.display = 'flex';
+      }
+      return;
+    }
+    const tab = (e.target as HTMLElement).closest('[data-tab]') as HTMLElement;
+    if (tab) {
+      const tabPath = tab.dataset.tab || '';
+      const entry = useFilesStore.getState().files.get(tabPath);
+      if (entry) {
+        openFileTab(tabPath, entry.content);
+        import('./features/welcome').then((m) => m.addRecentFile(tabPath));
+        renderTabs();
+        renderFileTree();
+      }
     }
   };
 }
@@ -400,8 +809,23 @@ function showCommandPalette(): void {
     { icon: '📦', name: '代码片段管理', shortcut: '', action: showSnippetManager },
     { icon: '🎨', name: '主题编辑器', shortcut: '', action: showThemeEditor },
     { icon: '⌨', name: '快捷键设置', shortcut: '', action: showShortcutEditor },
+    { icon: '🐛', name: '启动调试', shortcut: 'F5', action: quickDebug },
+    { icon: '■', name: '停止调试', shortcut: 'Shift+F5', action: stopDebugSession },
+    { icon: '🔴', name: '切换断点', shortcut: 'F9', action: toggleBreakpointAtCursor },
+    { icon: '✨', name: '格式化代码', shortcut: 'Shift+Alt+F', action: () => import('./features/format').then((m) => m.formatDocument()) },
+    { icon: '⬌', name: '分屏编辑 (水平)', shortcut: 'Ctrl+\\', action: () => import('./features/split-view').then((m) => m.toggleSplitView('horizontal')) },
+    { icon: '⬍', name: '关闭分屏', shortcut: '', action: () => import('./features/split-view').then((m) => m.closeSplitView()) },
+    { icon: '🛒', name: '插件市场', shortcut: '', action: () => import('./features/marketplace').then((m) => m.showMarketplace()) },
+    { icon: '⏱', name: '编辑历史时间线', shortcut: '', action: showTimelinePanel },
+    { icon: '🔤', name: '文件编码管理', shortcut: '', action: () => import('./features/encoding').then((m) => m.showEncodingSelector()) },
+    { icon: '🔄', name: '检查更新', shortcut: '', action: () => import('./features/auto-update').then((m) => m.checkForUpdates()) },
     { icon: '⚙', name: '打开设置', shortcut: 'Ctrl+,', action: showSettings },
-    { icon: '❓', name: '关于 AI Code Editor v3.0', shortcut: '', action: () => alert('AI Code Editor v3.0\nTypeScript + Vite + Zustand') },
+    { icon: '❓', name: '关于 AI Code Editor v4.0', shortcut: '', action: () => alert('AI Code Editor v4.0\nTypeScript + Vite + Zustand\nSplit View · Marketplace · Timeline') },
+    { icon: '🧘', name: '专注模式 (Zen Mode)', shortcut: 'F11', action: () => import('./features/zen-mode').then((m) => m.toggleZenMode()) },
+    { icon: '🔗', name: 'SSH 远程连接', shortcut: '', action: () => import('./features/ssh-remote').then((m) => m.showSSHPanel()) },
+    { icon: '🌐', name: '切换语言 (Language)', shortcut: '', action: () => import('./core/i18n').then(({ i18n }) => {
+      i18n.setLocale(i18n.getLocale() === 'zh-CN' ? 'en' : 'zh-CN');
+    })},
   ];
 
   let palette = document.getElementById('commandPalette');
@@ -512,8 +936,8 @@ function setupImageUpload(): void {
           Array.from(fileInput.files).forEach((file) => {
             const reader = new FileReader();
             reader.onload = () => {
-              (window as any).__pendingImages = (window as any).__pendingImages || [];
-              (window as any).__pendingImages.push(reader.result as string);
+              window.__pendingImages = window.__pendingImages || [];
+              window.__pendingImages.push(reader.result as string);
               renderImagePreviews();
             };
             reader.readAsDataURL(file);
@@ -534,8 +958,8 @@ function setupImageUpload(): void {
         if (!file.type.startsWith('image/')) return;
         const reader = new FileReader();
         reader.onload = () => {
-          (window as any).__pendingImages = (window as any).__pendingImages || [];
-          (window as any).__pendingImages.push(reader.result as string);
+          window.__pendingImages = window.__pendingImages || [];
+          window.__pendingImages.push(reader.result as string);
           renderImagePreviews();
         };
         reader.readAsDataURL(file);
@@ -543,8 +967,8 @@ function setupImageUpload(): void {
     }
   });
 
-  (window as any)._clearImages = () => {
-    (window as any).__pendingImages = [];
+  window._clearImages = () => {
+    window.__pendingImages = [];
     renderImagePreviews();
   };
 }
@@ -552,17 +976,17 @@ function setupImageUpload(): void {
 function renderImagePreviews(): void {
   const container = document.getElementById('imagePreview');
   if (!container) return;
-  const images = (window as any).__pendingImages || [];
+  const images = window.__pendingImages || [];
   container.innerHTML = images
     .map((img: string, i: number) => `
       <div style="position:relative;width:48px;height:48px;border-radius:4px;overflow:hidden;border:1px solid var(--border-color);">
         <img src="${img}" style="width:100%;height:100%;object-fit:cover;">
-        <button onclick="(window as any).__removeImage?.(${i})" style="position:absolute;top:0;right:0;background:rgba(0,0,0,0.6);border:none;color:white;font-size:10px;width:14px;height:14px;line-height:14px;cursor:pointer;padding:0;">✕</button>
+        <button onclick="window.__removeImage?.(${i})" style="position:absolute;top:0;right:0;background:rgba(0,0,0,0.6);border:none;color:white;font-size:10px;width:14px;height:14px;line-height:14px;cursor:pointer;padding:0;">✕</button>
       </div>
     `)
     .join('');
-  (window as any).__removeImage = (i: number) => {
-    (window as any).__pendingImages = ((window as any).__pendingImages || []).filter((_: string, idx: number) => idx !== i);
+  window.__removeImage = (i: number) => {
+    window.__pendingImages = (window.__pendingImages || []).filter((_: string, idx: number) => idx !== i);
     renderImagePreviews();
   };
 }
@@ -571,7 +995,7 @@ function renderImagePreviews(): void {
 function setupVoiceInput(): void {
   if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) return;
 
-  const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+  const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition;
   const recognition = new SpeechRecognition();
   recognition.lang = 'zh-CN';
   recognition.continuous = false;
@@ -640,14 +1064,153 @@ function updateAIStatus(): void {
   }
 }
 
-// ─── Toast ─────────────────────────────────────────────────
-export function showToast(message: string): void {
-  const toast = document.createElement('div');
-  toast.className = 'toast';
-  toast.textContent = message;
-  document.body.appendChild(toast);
-  setTimeout(() => toast.remove(), 3000);
+// ─── Enhanced Notification System ─────────────────────────
+interface ActiveNotification {
+  id: string;
+  el: HTMLElement;
+  type: 'toast' | 'persistent' | 'progress';
+  timer?: ReturnType<typeof setTimeout>;
 }
+
+const activeNotifications: ActiveNotification[] = [];
+const MAX_VISIBLE = 5;
+
+let notificationContainer: HTMLElement | null = null;
+
+function getNotificationContainer(): HTMLElement {
+  if (!notificationContainer) {
+    notificationContainer = document.createElement('div');
+    notificationContainer.id = 'notificationContainer';
+    notificationContainer.style.cssText =
+      'position:fixed;bottom:24px;right:24px;z-index:10000;display:flex;flex-direction:column-reverse;gap:8px;pointer-events:none;';
+    document.body.appendChild(notificationContainer);
+  }
+  return notificationContainer;
+}
+
+function createNotificationEl(
+  message: string,
+  type: 'info' | 'success' | 'error' | 'warning',
+  persistent: boolean,
+  progress?: number,
+): HTMLElement {
+  const colors: Record<string, string> = {
+    info: 'var(--info)',
+    success: 'var(--success)',
+    error: 'var(--error)',
+    warning: 'var(--warning)',
+  };
+  const icons: Record<string, string> = {
+    info: 'ℹ',
+    success: '✓',
+    error: '✕',
+    warning: '⚠',
+  };
+
+  const el = document.createElement('div');
+  el.className = 'notification-item';
+  el.style.cssText = `pointer-events:auto;display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bg-primary);border:1px solid var(--border-color);border-left:3px solid ${colors[type]};border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.3);min-width:280px;max-width:420px;animation:slideInRight 0.25s ease-out;font-size:13px;`;
+
+  if (progress !== undefined) {
+    el.innerHTML = `
+      <span style="color:${colors[type]};font-size:16px;flex-shrink:0;">${icons[type]}</span>
+      <div style="flex:1;min-width:0;">
+        <div style="margin-bottom:6px;">${message}</div>
+        <div style="background:var(--bg-hover);border-radius:4px;height:4px;overflow:hidden;">
+          <div style="background:${colors[type]};height:100%;width:${Math.min(100, progress)}%;transition:width 0.3s ease;"></div>
+        </div>
+      </div>
+      ${persistent ? '<button class="notif-close" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;flex-shrink:0;padding:0 2px;">✕</button>' : ''}
+    `;
+  } else {
+    el.innerHTML = `
+      <span style="color:${colors[type]};font-size:16px;flex-shrink:0;">${icons[type]}</span>
+      <span style="flex:1;min-width:0;word-break:break-word;">${message}</span>
+      ${persistent ? '<button class="notif-close" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;flex-shrink:0;padding:0 2px;">✕</button>' : ''}
+    `;
+  }
+
+  // Close button handler
+  const closeBtn = el.querySelector('.notif-close') as HTMLElement;
+  if (closeBtn) {
+    closeBtn.addEventListener('click', () => dismissNotification(idFromEl(el)));
+  }
+
+  return el;
+}
+
+function idFromEl(el: HTMLElement): string {
+  const notif = activeNotifications.find((n) => n.el === el);
+  return notif?.id || '';
+}
+
+function dismissNotification(id: string): void {
+  const idx = activeNotifications.findIndex((n) => n.id === id);
+  if (idx === -1) return;
+  const notif = activeNotifications[idx];
+  if (notif.timer) clearTimeout(notif.timer);
+  notif.el.style.animation = 'slideOutRight 0.2s ease-in forwards';
+  setTimeout(() => {
+    notif.el.remove();
+    activeNotifications.splice(
+      activeNotifications.findIndex((n) => n.id === id),
+      1,
+    );
+  }, 200);
+}
+
+// Legacy: keep backward compatibility
+export function showToast(message: string): void {
+  bus.emit('toast:show', { message, type: 'info', duration: 3000 });
+}
+
+// Modern: typed notification API
+export function showNotification(
+  message: string,
+  type: 'info' | 'success' | 'error' | 'warning' = 'info',
+  options: { persistent?: boolean; duration?: number; progress?: number } = {},
+): string {
+  const id = `notif-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const container = getNotificationContainer();
+
+  // Clean up expired toasts
+  while (activeNotifications.length >= MAX_VISIBLE) {
+    const oldest = activeNotifications.shift();
+    if (oldest) {
+      if (oldest.timer) clearTimeout(oldest.timer);
+      oldest.el.remove();
+    }
+  }
+
+  const el = createNotificationEl(message, type, options.persistent || false, options.progress);
+  container.appendChild(el);
+
+  const notif: ActiveNotification = { id, el, type: options.progress !== undefined ? 'progress' : options.persistent ? 'persistent' : 'toast' };
+
+  if (!options.persistent && options.duration !== 0) {
+    notif.timer = setTimeout(() => dismissNotification(id), options.duration || 3500);
+  }
+
+  activeNotifications.push(notif);
+  return id;
+}
+
+export function updateNotificationProgress(id: string, progress: number, message?: string): void {
+  const notif = activeNotifications.find((n) => n.id === id);
+  if (!notif) return;
+  const progressBar = notif.el.querySelector('div > div > div') as HTMLElement;
+  if (progressBar) {
+    progressBar.style.width = `${Math.min(100, Math.max(0, progress))}%`;
+  }
+  if (progress >= 100) {
+    setTimeout(() => dismissNotification(id), 1500);
+  }
+}
+
+// ─── Set up event bus listeners for notifications ─────────
+bus.on('toast:show', ({ message, type = 'info', duration = 3000 }) => {
+  showNotification(message, type, { duration });
+});
 
 // ─── Electron Integration ─────────────────────────────────
 function setupElectronIntegration(): void {
@@ -925,3 +1488,8 @@ function stopFilesystemWatch(): void {
 
 // ─── Boot ──────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', init);
+
+// ─── Timeline Panel ────────────────────────────────────────
+function showTimelinePanel(): void {
+  import('./features/timeline').then((m) => m.toggleTimelinePanel());
+}

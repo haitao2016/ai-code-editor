@@ -2,11 +2,20 @@
 // 聊天面板 UI — 整合 AI、Agent、Composer、上下文引用
 // ============================================================
 import { useChatStore, useUIStore, useEditorStore, useAISettingsStore, useFilesStore, useModelStore, useAgentStore, useComposerStore } from '../core/stores';
-import { callAIStream } from '../core/ai';
+import { callAIStream, createAISignal, abortActiveRequest } from '../core/ai';
 import { runAgent } from '../core/agent-tools';
-import { getEditorContent, getEditor, openFileTab, setEditorContent } from '../core/editor';
+import { getEditor, openFileTab, setEditorContent } from '../core/editor';
 import { getLanguageFromPath, saveFile, loadAllFiles } from '../core/files';
+import { buildSmartContext } from '../core/context';
+import { getDependencyFiles } from '../core/context';
+import { searchRAGAsync, getRAGIndex, rebuildRAGIndex, rebuildRAGIndexWithEmbeddings } from '../core/rag';
+import { bus } from '../core/event-bus';
 import type { ChatMessage, CodeBlock, ModelConfig, ComposerChange, FileEntry } from '../types';
+
+// ─── EventBus: apply code from AI ──────────────────────
+bus.on('chat:apply-code', (data: { code: string }) => {
+  applyCodeToEditor(data.code);
+});
 
 let pendingImages: string[] = [];
 
@@ -74,7 +83,93 @@ export function renderChatMessages(): void {
   container.scrollTop = container.scrollHeight;
 }
 
+// ─── Streaming-optimized incremental render ─────────────────
+// Instead of rebuilding all HTML on every token, only update the last message's content div.
+// Throttled to ~50ms to avoid jank during fast streaming.
+
+let _streamRenderTimer: ReturnType<typeof setTimeout> | null = null;
+let _streamPendingContent: string | null = null;
+const STREAM_THROTTLE_MS = 50;
+
+/** Call from streaming onChunk for incremental DOM updates */
+export function renderChatMessagesStream(content: string): void {
+  _streamPendingContent = content;
+
+  if (_streamRenderTimer) return; // already scheduled
+  _streamRenderTimer = setTimeout(() => {
+    _streamRenderTimer = null;
+    const text = _streamPendingContent;
+    _streamPendingContent = null;
+    if (text === null) return;
+
+    const container = document.getElementById('chatMessages');
+    if (!container) return;
+
+    // Try incremental: find the last AI message and update its content div
+    const messages = container.querySelectorAll('.chat-message.ai');
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg) {
+      const contentDiv = lastMsg.querySelector('.content');
+      if (contentDiv) {
+        const { html: contentHtml } = parseCodeBlocks(text);
+        contentDiv.innerHTML = contentHtml;
+        container.scrollTop = container.scrollHeight;
+        return;
+      }
+    }
+
+    // Fallback: full render
+    renderChatMessages();
+  }, STREAM_THROTTLE_MS);
+}
+
+/** Force-flush any pending stream render and do a final full render */
+export function renderChatMessagesFinal(): void {
+  if (_streamRenderTimer) {
+    clearTimeout(_streamRenderTimer);
+    _streamRenderTimer = null;
+    _streamPendingContent = null;
+  }
+  renderChatMessages();
+}
+
 // ─── Send message ──────────────────────────────────────────
+/** Update the "Context" UI showing recommended files for the current file */
+export function updateChatContext(): void {
+  const contextDiv = document.getElementById('chatContext') as HTMLElement | null;
+  const filesDiv = document.getElementById('contextFiles') as HTMLElement | null;
+  if (!contextDiv || !filesDiv) return;
+
+  const editorStore = useEditorStore.getState();
+  const activePath = editorStore.activeFilePath;
+  if (!activePath) {
+    contextDiv.style.display = 'none';
+    return;
+  }
+
+  // Get dependency files
+  const deps = getDependencyFiles(activePath, 2);
+  if (deps.length === 0) {
+    contextDiv.style.display = 'none';
+    return;
+  }
+
+  // Render context files
+  contextDiv.style.display = '';
+  filesDiv.innerHTML = deps.slice(0, 5).map((f) => {
+    const name = f.split('/').pop() || f;
+    return `<span class="context-file" data-path="${f}" title="${f}">${name}</span>`;
+  }).join('');
+
+  // Add click handlers
+  filesDiv.querySelectorAll('.context-file').forEach((el) => {
+    el.addEventListener('click', () => {
+      const path = (el as HTMLElement).dataset.path;
+      if (path) openFileTab(path);
+    });
+  });
+}
+
 export async function sendChatMessage(): Promise<void> {
   const input = document.getElementById('chatInput') as HTMLTextAreaElement;
   if (!input) return;
@@ -102,15 +197,27 @@ export async function sendChatMessage(): Promise<void> {
 
   addUserMessage(text);
   store.setLoading(true);
+  toggleSendStopButton(true);
+
+  // Create abort signal for this request
+  const signal = createAISignal();
 
   // Get pending images from global state
-  pendingImages = (window as any).__pendingImages || [];
-  (window as any).__pendingImages = [];
-  (window as any)._clearImages?.();
+  pendingImages = window.__pendingImages || [];
+  window.__pendingImages = [];
+  window._clearImages?.();
 
   // Build context with model
   const modelStore = useModelStore.getState();
-  const context = getChatContext();
+  const context = await getChatContext(text);
+
+  // RAG: semantic search for relevant code snippets
+  let ragContext = '';
+  try {
+    ragContext = await searchRAGAsync(text, 3);
+  } catch {
+    // RAG index not built yet, skip
+  }
 
   // Build messages with image support
   const userContent: any[] = [{ type: 'text', text: text }];
@@ -118,8 +225,9 @@ export async function sendChatMessage(): Promise<void> {
     pendingImages.forEach((img) => userContent.push({ type: 'image_url', image_url: { url: img } }));
   }
 
+  const systemContent = `You are an AI programming assistant in AI Code Editor v3.0. Be helpful, concise. ${context ? 'Context:\\n' + context : ''}${ragContext}`;
   const messages = [
-    { role: 'system', content: `You are an AI programming assistant in AI Code Editor v3.0. Be helpful, concise. ${context ? 'Context: ' + context : ''}` },
+    { role: 'system', content: systemContent },
     ...useChatStore.getState().messages
       .filter((m) => m.role === 'user' || m.role === 'ai')
       .slice(-10)
@@ -143,12 +251,17 @@ export async function sendChatMessage(): Promise<void> {
       const msgs = useChatStore.getState().messages;
       if (msgs.length > 0 && msgs[msgs.length - 1].role === 'ai') {
         msgs[msgs.length - 1].content += chunk;
-        renderChatMessages();
+        // Incremental render: only update the last message content
+        renderChatMessagesStream(msgs[msgs.length - 1].content);
       }
-    }
+    },
+    { signal }
   );
 
+  // Final full render to process code blocks and action buttons
+  renderChatMessagesFinal();
   store.setLoading(false);
+  toggleSendStopButton(false);
 }
 
 function addUserMessage(text: string): void {
@@ -160,14 +273,9 @@ function addUserMessage(text: string): void {
   });
 }
 
-function getChatContext(): string {
-  const editorStore = useEditorStore.getState();
-  if (!editorStore.activeFile) return '';
-
-  const content = getEditorContent();
-  const maxLen = 2000;
-  const truncated = content.length > maxLen ? content.substring(0, maxLen) + '\n... (truncated)' : content;
-  return `Current file: ${editorStore.activeFile}\n\`\`\`\n${truncated}\n\`\`\``;
+async function getChatContext(userQuery?: string): Promise<string> {
+  // Use smart multi-file context with token budget + RAG
+  return buildSmartContext(4000, userQuery);
 }
 
 // ─── Quick hints ───────────────────────────────────────────
@@ -194,6 +302,7 @@ async function startAgentFromChat(intent: string): Promise<void> {
   const agentStore = useAgentStore.getState();
   store.setLoading(true);
   agentStore.setRunning(true);
+  toggleSendStopButton(true);
 
   // Create AI message placeholder
   const aiMsgId = Date.now().toString();
@@ -224,6 +333,7 @@ async function startAgentFromChat(intent: string): Promise<void> {
       }
       store.setLoading(false);
       agentStore.setRunning(false);
+      toggleSendStopButton(false);
 
       // Refresh file tree if files were created
       import('../main').then((m) => {
@@ -234,7 +344,7 @@ async function startAgentFromChat(intent: string): Promise<void> {
             const files = useFilesStore.getState().files;
             const entries = Array.from(files.entries()).map(([path, entry]) => ({ path, ...entry }));
             entries.sort((a, b) => a.path.localeCompare(b.path));
-            (window as any).__refreshFileTree?.();
+            window.__refreshFileTree?.();
           }
         });
       });
@@ -248,6 +358,7 @@ async function startComposerFromChat(request: string): Promise<void> {
   const composerStore = useComposerStore.getState();
   const aiSettings = useAISettingsStore.getState() as any;
   store.setLoading(true);
+  toggleSendStopButton(true);
 
   if (!aiSettings.endpoint || !aiSettings.apiKey) {
     store.addMessage({
@@ -257,6 +368,7 @@ async function startComposerFromChat(request: string): Promise<void> {
       timestamp: Date.now(),
     });
     store.setLoading(false);
+    toggleSendStopButton(false);
     renderChatMessages();
     return;
   }
@@ -361,6 +473,8 @@ IMPORTANT:
           });
           const applyAllBtn = document.getElementById('composer-apply-all');
           applyAllBtn?.addEventListener('click', applyAllComposerChanges);
+          const rejectAllBtn = document.getElementById('composer-reject-all');
+          rejectAllBtn?.addEventListener('click', rejectAllComposerChanges);
         }, 50);
 
       } catch (e) {
@@ -383,6 +497,7 @@ IMPORTANT:
   }
 
   store.setLoading(false);
+  toggleSendStopButton(false);
 }
 
 function buildComposerPlanHtml(changes: ComposerChange[]): string {
@@ -413,9 +528,14 @@ function buildComposerPlanHtml(changes: ComposerChange[]): string {
       ${totalFiles} 个文件变更
     </div>
     ${changeItems}
-    <button id="composer-apply-all" style="margin-top:8px;background:var(--info);color:white;border:none;padding:6px 16px;border-radius:6px;cursor:pointer;font-size:12px;width:100%">
-      🚀 全部应用 (${totalFiles} 个文件)
-    </button>
+    <div style="display:flex;gap:6px;margin-top:8px">
+      <button id="composer-apply-all" style="flex:1;background:var(--success);color:white;border:none;padding:6px 16px;border-radius:6px;cursor:pointer;font-size:12px">
+        🚀 全部应用 (${totalFiles} 个文件)
+      </button>
+      <button id="composer-reject-all" style="flex:1;background:var(--error);color:white;border:none;padding:6px 16px;border-radius:6px;cursor:pointer;font-size:12px">
+        ✕ 全部拒绝
+      </button>
+    </div>
   </div>`;
 }
 
@@ -494,7 +614,35 @@ async function applyAllComposerChanges(): Promise<void> {
   });
 }
 
+async function rejectAllComposerChanges(): Promise<void> {
+  const plan = useComposerStore.getState().plan;
+  if (!plan) return;
+
+  for (let i = 0; i < plan.changes.length; i++) {
+    if (plan.changes[i].status === 'pending') {
+      rejectComposerChange(i);
+    }
+  }
+
+  import('../main').then((m) =>
+    m.showToast(`已拒绝 ${plan.changes.length} 个文件变更`)
+  );
+}
+
 // ─── Toggle panel ──────────────────────────────────────────
+function toggleSendStopButton(isLoading: boolean): void {
+  const btnSend = document.getElementById('btnSend');
+  const btnStop = document.getElementById('btnStop');
+  if (btnSend) btnSend.style.display = isLoading ? 'none' : '';
+  if (btnStop) btnStop.style.display = isLoading ? '' : 'none';
+}
+
+export function cancelChatRequest(): void {
+  abortActiveRequest();
+  useChatStore.getState().setLoading(false);
+  toggleSendStopButton(false);
+  import('../main').then((m) => m.showToast('已停止生成'));
+}
 export function toggleChat(): void {
   const store = useUIStore.getState();
   store.toggleChat();
@@ -502,6 +650,7 @@ export function toggleChat(): void {
   if (panel) panel.classList.toggle('collapsed', store.chatCollapsed);
   if (!store.chatCollapsed) {
     setTimeout(() => document.getElementById('chatInput')?.focus(), 100);
+    updateChatContext();
   }
 }
 
@@ -511,4 +660,5 @@ export function clearChat(): void {
 }
 
 // ─── Export global handles ─────────────────────────────────
-(window as any)._applyCode = applyCodeToEditor;
+// Delegate to EventBus for decoupling (HTML onclick compatibility)
+window._applyCode = (code: string) => bus.emit('chat:apply-code', { code });

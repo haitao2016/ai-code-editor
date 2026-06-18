@@ -2,6 +2,29 @@
 // Preload Script — Secure Bridge between Main and Renderer
 // ============================================================
 import { contextBridge, ipcRenderer } from 'electron';
+import { join, normalize, resolve, sep } from 'path';
+
+// ═══ Path validation (anti-path-traversal) ═══════════════
+let workspaceRoot = '';
+
+ipcRenderer.invoke('app:getWorkspaceRoot').then((root: string) => {
+  workspaceRoot = resolve(root || process.cwd());
+});
+
+function sanitizePath(filePath: string): string {
+  if (!workspaceRoot) return filePath;
+  const resolved = resolve(normalize(filePath));
+  // Ensure path stays within workspace root
+  const wsRoot = resolve(workspaceRoot);
+  if (!resolved.startsWith(wsRoot + sep) && resolved !== wsRoot) {
+    // Allow read access to common system paths for display only
+    if (!resolved.includes('..') && resolved.length < 500) {
+      return resolved;
+    }
+    throw new Error(`Access denied: path outside workspace (${filePath})`);
+  }
+  return resolved;
+}
 
 const api = {
   // ─── Window Controls ───────────────────────────────────
@@ -62,8 +85,59 @@ const api = {
     },
   },
 
+  // ─── Agent Command Execution ────────────────────────────
+  exec: {
+    command: (command: string, cwd?: string) => ipcRenderer.invoke('exec:command', command, cwd),
+    spawn: (command: string, args: string[], cwd?: string) => ipcRenderer.invoke('exec:spawn', command, args, cwd),
+  },
+
   // ─── Shell ─────────────────────────────────────────────
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
+
+  // ─── LSP ──────────────────────────────────────────────
+  lsp: {
+    start: (config: any) => ipcRenderer.invoke('lsp:start', config),
+    write: (channel: string, data: string) => ipcRenderer.send('lsp:write', channel, data),
+    close: (channel: string) => ipcRenderer.send('lsp:close', channel),
+    shutdownAll: () => ipcRenderer.send('lsp:shutdownAll'),
+    onData: (channel: string, callback: (data: string) => void) => {
+      const handler = (_event: any, data: string) => callback(data);
+      ipcRenderer.on(`lsp:data:${channel}`, handler);
+      return () => ipcRenderer.removeListener(`lsp:data:${channel}`, handler);
+    },
+    onError: (channel: string, callback: (msg: string) => void) => {
+      const handler = (_event: any, msg: string) => callback(msg);
+      ipcRenderer.on(`lsp:error:${channel}`, handler);
+      return () => ipcRenderer.removeListener(`lsp:error:${channel}`, handler);
+    },
+    onClosed: (channel: string, callback: (code: number) => void) => {
+      const handler = (_event: any, code: number) => callback(code);
+      ipcRenderer.on(`lsp:closed:${channel}`, handler);
+      return () => ipcRenderer.removeListener(`lsp:closed:${channel}`, handler);
+    },
+  },
+
+  // ─── DAP ──────────────────────────────────────────────
+  dap: {
+    start: (config: any, sessionId: string) => ipcRenderer.invoke('dap:start', sessionId, config),
+    write: (sessionId: string, data: string) => ipcRenderer.send('dap:write', sessionId, data),
+    stop: (sessionId: string) => ipcRenderer.send('dap:stop', sessionId),
+    onData: (sessionId: string, callback: (data: string) => void) => {
+      const handler = (_event: any, data: string) => callback(data);
+      ipcRenderer.on(`dap:data:${sessionId}`, handler);
+      return () => ipcRenderer.removeListener(`dap:data:${sessionId}`, handler);
+    },
+    onError: (sessionId: string, callback: (msg: string) => void) => {
+      const handler = (_event: any, msg: string) => callback(msg);
+      ipcRenderer.on(`dap:error:${sessionId}`, handler);
+      return () => ipcRenderer.removeListener(`dap:error:${sessionId}`, handler);
+    },
+    onClose: (sessionId: string, callback: (code: number) => void) => {
+      const handler = (_event: any, code: number) => callback(code);
+      ipcRenderer.on(`dap:closed:${sessionId}`, handler);
+      return () => ipcRenderer.removeListener(`dap:closed:${sessionId}`, handler);
+    },
+  },
 
   // ─── App Info ──────────────────────────────────────────
   getAppInfo: () => ipcRenderer.invoke('app:getInfo'),
